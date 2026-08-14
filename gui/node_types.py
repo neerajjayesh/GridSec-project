@@ -3,12 +3,29 @@ gui/node_types.py
 =================
 QGraphicsItem subclasses for all topology node types.
 
-Node types:
-  - PMUNode      — green circle   (Phasor Measurement Unit)
-  - PDCNode      — blue rectangle (data concentrator / openPDC)
-  - SwitchNode   — gray diamond   (network switch)
-  - ThreatAgentNode — red triangle with ⚠ symbol (MitM attacker)
-  - VirtualNode  — purple circle  (generic virtual device)
+Hierarchical substation-automation levels:
+  Level 0 — Process:
+    - CTVTNode       — amber circle  (Current/Voltage Transformer sensor)
+    - BreakerNode    — orange rounded-square (Circuit Breaker / Isolator)
+
+  Level 1 — Bay:
+    - PMUNode        — green circle  (Phasor Measurement Unit)
+    - ProtectionIEDNode — teal hexagon (Protection IED / Relay, GOOSE)
+    - BCUNode        — cyan rounded-rect (Bay Control Unit)
+
+  Level 2 — Station:
+    - PDCNode        — blue rectangle (Local PDC / openPDC)
+    - SwitchNode     — gray diamond   (Station Switch)
+    - StationHMINode — indigo wide-rect (Station HMI / SCADA Server)
+    - EngineeringWSNode — red-orange rect with ⚠ (Engineering Workstation)
+    - GatewayRTUNode — amber rectangle (Gateway / RTU, DNP3/IEC104)
+
+  Level 3 — State (SLDC):
+    - StatePDCNode   — deep-purple large-rect (State / Regional PDC)
+
+  Level-agnostic:
+    - ThreatAgentNode — red triangle with ⚠ symbol (MitM attacker)
+    - VirtualNode     — purple circle  (generic virtual device)
 
 Also:
   - LinkItem     — directed line between two nodes with protocol label
@@ -59,43 +76,150 @@ node_signals = NodeSignalBridge()
 # ─────────────────────────────────────────────────────────────────────────────
 
 class NodeType:
-    PMU          = "PMU"
-    PDC          = "PDC"
-    SWITCH       = "SWITCH"
-    THREAT_AGENT = "THREAT_AGENT"
-    VIRTUAL      = "VIRTUAL"
+    # Level 0 — Process
+    CT_VT           = "CT_VT"
+    BREAKER         = "BREAKER"
+    # Level 1 — Bay
+    PMU             = "PMU"
+    PROTECTION_IED  = "PROTECTION_IED"
+    BCU             = "BCU"
+    # Level 2 — Station
+    PDC             = "PDC"
+    SWITCH          = "SWITCH"
+    STATION_HMI     = "STATION_HMI"
+    ENGINEERING_WS  = "ENGINEERING_WS"
+    GATEWAY_RTU     = "GATEWAY_RTU"
+    # Level 3 — State
+    STATE_PDC       = "STATE_PDC"
+    # Level-agnostic
+    THREAT_AGENT    = "THREAT_AGENT"
+    VIRTUAL         = "VIRTUAL"
+
+
+# ── Level mapping ──────────────────────────────────────────────────────────
+
+NODE_LEVEL: Dict[str, int] = {
+    NodeType.CT_VT:          0,
+    NodeType.BREAKER:        0,
+    NodeType.PMU:            1,
+    NodeType.PROTECTION_IED: 1,
+    NodeType.BCU:            1,
+    NodeType.PDC:            2,
+    NodeType.SWITCH:         2,
+    NodeType.STATION_HMI:    2,
+    NodeType.ENGINEERING_WS: 2,
+    NodeType.GATEWAY_RTU:    2,
+    NodeType.STATE_PDC:      3,
+    # Threat Agent / Virtual can go anywhere — no lane constraint
+    NodeType.THREAT_AGENT:   -1,
+    NodeType.VIRTUAL:        -1,
+}
 
 
 NODE_DISPLAY_NAMES = {
-    NodeType.PMU:          "PMU",
-    NodeType.PDC:          "PDC / openPDC",
-    NodeType.SWITCH:       "Switch",
-    NodeType.THREAT_AGENT: "Threat Agent",
-    NodeType.VIRTUAL:      "Virtual Node",
+    NodeType.CT_VT:          "CT/VT Sensor",
+    NodeType.BREAKER:        "Circuit Breaker",
+    NodeType.PMU:            "PMU",
+    NodeType.PROTECTION_IED: "Protection IED",
+    NodeType.BCU:            "Bay Control Unit",
+    NodeType.PDC:            "Local PDC",
+    NodeType.SWITCH:         "Station Switch",
+    NodeType.STATION_HMI:    "Station HMI",
+    NodeType.ENGINEERING_WS: "Eng. Workstation",
+    NodeType.GATEWAY_RTU:    "Gateway / RTU",
+    NodeType.STATE_PDC:      "State PDC",
+    NodeType.THREAT_AGENT:   "Threat Agent",
+    NodeType.VIRTUAL:        "Virtual Node",
 }
 
 NODE_DESCRIPTIONS = {
-    NodeType.PMU:          "Phasor Measurement Unit — generates C37.118 synchrophasor data",
-    NodeType.PDC:          "Phasor Data Concentrator — receives and aggregates PMU data",
-    NodeType.SWITCH:       "Network switch — routes traffic between nodes",
-    NodeType.THREAT_AGENT: "MitM attacker — intercepts and modifies traffic on a link",
-    NodeType.VIRTUAL:      "Generic virtual device",
+    NodeType.CT_VT:          "Current/Voltage Transformer — measurement sensor feeding bay IEDs",
+    NodeType.BREAKER:        "Circuit Breaker / Isolator — binary open/closed switching device",
+    NodeType.PMU:            "Phasor Measurement Unit — generates C37.118 synchrophasor data",
+    NodeType.PROTECTION_IED: "Protection IED / Relay — GOOSE-speaking bay protection device",
+    NodeType.BCU:            "Bay Control Unit — coordinates bay-level switching and interlocking",
+    NodeType.PDC:            "Local Phasor Data Concentrator — aggregates PMU data at station level",
+    NodeType.SWITCH:         "Station network switch — routes traffic between station devices",
+    NodeType.STATION_HMI:    "Station HMI / SCADA Server — operator interface and local control",
+    NodeType.ENGINEERING_WS: "Engineering Workstation — ⚠ HIGH-RISK ASSET — USB/local compromise entry point",
+    NodeType.GATEWAY_RTU:    "Gateway / RTU — DNP3/IEC104 bridge to state-level SLDC",
+    NodeType.STATE_PDC:      "State / Regional PDC — aggregates from multiple local PDCs at SLDC",
+    NodeType.THREAT_AGENT:   "MitM attacker — intercepts and modifies traffic on a link",
+    NodeType.VIRTUAL:        "Generic virtual device",
 }
 
 NODE_COLORS = {
-    NodeType.PMU:          "#10b981",   # green
-    NodeType.PDC:          "#3b82f6",   # blue
-    NodeType.SWITCH:       "#64748b",   # gray
-    NodeType.THREAT_AGENT: "#ef4444",   # red
-    NodeType.VIRTUAL:      "#8b5cf6",   # purple
+    NodeType.CT_VT:          "#f59e0b",   # amber
+    NodeType.BREAKER:        "#f97316",   # orange
+    NodeType.PMU:            "#10b981",   # green
+    NodeType.PROTECTION_IED: "#14b8a6",   # teal
+    NodeType.BCU:            "#06b6d4",   # cyan
+    NodeType.PDC:            "#3b82f6",   # blue
+    NodeType.SWITCH:         "#64748b",   # gray
+    NodeType.STATION_HMI:    "#6366f1",   # indigo
+    NodeType.ENGINEERING_WS: "#e11d48",   # rose-red
+    NodeType.GATEWAY_RTU:    "#d97706",   # amber-dark
+    NodeType.STATE_PDC:      "#7c3aed",   # deep-purple
+    NodeType.THREAT_AGENT:   "#ef4444",   # red
+    NodeType.VIRTUAL:        "#8b5cf6",   # purple
 }
 
 NODE_ICON_TEXT = {
-    NodeType.PMU:          "PMU",
-    NodeType.PDC:          "PDC",
-    NodeType.SWITCH:       "SW",
-    NodeType.THREAT_AGENT: "!!",
-    NodeType.VIRTUAL:      "VN",
+    NodeType.CT_VT:          "CT",
+    NodeType.BREAKER:        "CB",
+    NodeType.PMU:            "PMU",
+    NodeType.PROTECTION_IED: "IED",
+    NodeType.BCU:            "BCU",
+    NodeType.PDC:            "PDC",
+    NodeType.SWITCH:         "SW",
+    NodeType.STATION_HMI:    "HMI",
+    NodeType.ENGINEERING_WS: "EW",
+    NodeType.GATEWAY_RTU:    "RTU",
+    NodeType.STATE_PDC:      "SPDC",
+    NodeType.THREAT_AGENT:   "!!",
+    NodeType.VIRTUAL:        "VN",
+}
+
+# Short names for auto-labeling in canvas
+NODE_SHORT_NAMES = {
+    NodeType.CT_VT:          "CT",
+    NodeType.BREAKER:        "CB",
+    NodeType.PMU:            "PMU",
+    NodeType.PROTECTION_IED: "IED",
+    NodeType.BCU:            "BCU",
+    NodeType.PDC:            "PDC",
+    NodeType.SWITCH:         "SW",
+    NodeType.STATION_HMI:    "HMI",
+    NodeType.ENGINEERING_WS: "EW",
+    NodeType.GATEWAY_RTU:    "RTU",
+    NodeType.STATE_PDC:      "SPDC",
+    NodeType.THREAT_AGENT:   "Threat",
+    NodeType.VIRTUAL:        "VNode",
+}
+
+# Default ports per node type
+NODE_DEFAULT_PORTS = {
+    NodeType.CT_VT:          0,
+    NodeType.BREAKER:        0,
+    NodeType.PMU:            4712,
+    NodeType.PROTECTION_IED: 102,
+    NodeType.BCU:            102,
+    NodeType.PDC:            4713,
+    NodeType.SWITCH:         0,
+    NodeType.STATION_HMI:    502,
+    NodeType.ENGINEERING_WS: 0,
+    NodeType.GATEWAY_RTU:    20000,
+    NodeType.STATE_PDC:      4714,
+    NodeType.THREAT_AGENT:   0,
+    NodeType.VIRTUAL:        0,
+}
+
+# Level labels
+LEVEL_LABELS = {
+    0: "L0 — Process",
+    1: "L1 — Bay",
+    2: "L2 — Station",
+    3: "L3 — State",
 }
 
 
@@ -122,12 +246,14 @@ class BaseNode(QGraphicsItem):
 
         self.node_type = node_type
         self._label    = label or NODE_DISPLAY_NAMES.get(node_type, node_type)
+        self._level    = NODE_LEVEL.get(node_type, -1)
         self._config: Dict[str, Any] = {
             "node_type": node_type,
             "label":     self._label,
             "ip":        "127.0.0.1",
-            "port":      4712,
+            "port":      NODE_DEFAULT_PORTS.get(node_type, 4712),
             "proto":     "UDP",
+            "level":     self._level,
         }
 
         # Visual
@@ -225,6 +351,8 @@ class BaseNode(QGraphicsItem):
     def proto(self) -> str:  return self._config.get("proto", "UDP")
     @property
     def label(self) -> str:  return self._label
+    @property
+    def level(self) -> int:  return self._level
 
     # ── Links ──────────────────────────────────────────────────────────────
 
@@ -281,7 +409,94 @@ class BaseNode(QGraphicsItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Concrete node types
+# Concrete node types — Level 0 (Process)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CTVTNode(BaseNode):
+    """Amber circle — CT/VT current/voltage transformer sensor."""
+
+    def __init__(self, label: str = "CT-1"):
+        super().__init__(NodeType.CT_VT, label)
+        self._config["subtype"] = "CT/VT"
+        self._config["port"] = 0
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.NODE_SIZE * 0.65
+
+        grad = QLinearGradient(QPointF(-r, -r), QPointF(r, r))
+        grad.setColorAt(0, QColor("#fcd34d"))
+        grad.setColorAt(1, QColor("#f59e0b"))
+        painter.setPen(QPen(QColor("#d97706"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawEllipse(QRectF(-r, -r, r * 2, r * 2))
+
+        # Inner ring (sensor symbol)
+        painter.setPen(QPen(QColor("#92400e"), 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QRectF(-r * 0.55, -r * 0.55, r * 1.1, r * 1.1))
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+class BreakerNode(BaseNode):
+    """Orange rounded square — Circuit Breaker / Isolator."""
+
+    def __init__(self, label: str = "CB-1"):
+        super().__init__(NodeType.BREAKER, label)
+        self._config["subtype"] = "breaker"
+        self._config["state"] = "closed"   # open / closed
+        self._config["port"] = 0
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 0.8, -s * 0.8, s * 1.6, s * 1.6)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        s = self.NODE_SIZE * 0.7
+        path.addRoundedRect(QRectF(-s, -s, s * 2, s * 2), 10, 10)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        r = self.NODE_SIZE * 0.65
+        return QPointF(center.x() + dx / dist * r, center.y() + dy / dist * r)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self.NODE_SIZE * 0.7
+
+        is_open = self._config.get("state") == "open"
+
+        grad = QLinearGradient(QPointF(-s, -s), QPointF(s, s))
+        if is_open:
+            grad.setColorAt(0, QColor("#fca5a5"))
+            grad.setColorAt(1, QColor("#ef4444"))
+            painter.setPen(QPen(QColor("#dc2626"), 2))
+        else:
+            grad.setColorAt(0, QColor("#fdba74"))
+            grad.setColorAt(1, QColor("#f97316"))
+            painter.setPen(QPen(QColor("#c2410c"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-s, -s, s * 2, s * 2), 10, 10)
+
+        # State indicator dot
+        dot_color = QColor("#ef4444") if is_open else QColor("#10b981")
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(dot_color))
+        painter.drawEllipse(QRectF(s * 0.4, -s * 0.9, 10, 10))
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concrete node types — Level 1 (Bay)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PMUNode(BaseNode):
@@ -290,6 +505,8 @@ class PMUNode(BaseNode):
     def __init__(self, label: str = "PMU-1"):
         super().__init__(NodeType.PMU, label)
         self._config["port"] = 4712
+        self._config["reporting_rate"] = 30
+        self._config["idcode"] = 1
 
     def paint(self, painter, option, widget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -315,12 +532,107 @@ class PMUNode(BaseNode):
         self._draw_selection_glow(painter)
 
 
+class ProtectionIEDNode(BaseNode):
+    """Teal hexagon — Protection IED / Relay (GOOSE)."""
+
+    def __init__(self, label: str = "IED-1"):
+        super().__init__(NodeType.PROTECTION_IED, label)
+        self._config["subtype"] = "protection_ied"
+        self._config["port"] = 102
+
+    def shape(self) -> QPainterPath:
+        s = self.NODE_SIZE * 0.75
+        poly = self._hex_polygon(s)
+        path = QPainterPath()
+        path.addPolygon(poly)
+        path.closeSubpath()
+        return path
+
+    def _hex_polygon(self, s: float) -> QPolygonF:
+        """Regular hexagon."""
+        pts = []
+        for i in range(6):
+            angle = math.radians(60 * i - 30)
+            pts.append(QPointF(s * math.cos(angle), s * math.sin(angle)))
+        return QPolygonF(pts)
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        r = self.NODE_SIZE * 0.68
+        return QPointF(center.x() + dx / dist * r, center.y() + dy / dist * r)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = self.NODE_SIZE * 0.75
+        poly = self._hex_polygon(s)
+
+        grad = QLinearGradient(QPointF(-s, -s), QPointF(s, s))
+        grad.setColorAt(0, QColor("#5eead4"))
+        grad.setColorAt(1, QColor("#14b8a6"))
+        painter.setPen(QPen(QColor("#0f766e"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawPolygon(poly)
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+class BCUNode(BaseNode):
+    """Cyan rounded rectangle — Bay Control Unit."""
+
+    def __init__(self, label: str = "BCU-1"):
+        super().__init__(NodeType.BCU, label)
+        self._config["subtype"] = "bcu"
+        self._config["port"] = 102
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 0.85, -s * 0.65, s * 1.7, s * 1.3)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-self.NODE_SIZE * 0.75, -self.NODE_SIZE * 0.55,
+                                    self.NODE_SIZE * 1.5, self.NODE_SIZE * 1.1), 10, 10)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        r = self.NODE_SIZE * 0.6
+        return QPointF(center.x() + dx / dist * r, center.y() + dy / dist * r)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rx, ry = self.NODE_SIZE * 0.75, self.NODE_SIZE * 0.55
+
+        grad = QLinearGradient(QPointF(-rx, -ry), QPointF(rx, ry))
+        grad.setColorAt(0, QColor("#67e8f9"))
+        grad.setColorAt(1, QColor("#06b6d4"))
+        painter.setPen(QPen(QColor("#0891b2"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-rx, -ry, rx * 2, ry * 2), 10, 10)
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concrete node types — Level 2 (Station)
+# ─────────────────────────────────────────────────────────────────────────────
+
 class PDCNode(BaseNode):
     """Blue rectangle — PDC / openPDC."""
 
     def __init__(self, label: str = "PDC-1"):
         super().__init__(NodeType.PDC, label)
         self._config["port"] = 4713
+        self._config["buffer_timeout"] = 100
+        self._config["pmu_input_count"] = 0
 
     def boundingRect(self) -> QRectF:
         s = self.NODE_SIZE
@@ -364,6 +676,7 @@ class SwitchNode(BaseNode):
     def __init__(self, label: str = "SW-1"):
         super().__init__(NodeType.SWITCH, label)
         self._icon_text = "SW"
+        self._config["port_count"] = 8
 
     def shape(self) -> QPainterPath:
         s = self.NODE_SIZE * 0.78
@@ -407,6 +720,214 @@ class SwitchNode(BaseNode):
         self._draw_icon(painter)
         self._draw_selection_glow(painter)
 
+
+class StationHMINode(BaseNode):
+    """Indigo wide rectangle — Station HMI / SCADA Server."""
+
+    def __init__(self, label: str = "HMI-1"):
+        super().__init__(NodeType.STATION_HMI, label)
+        self._config["status"] = "Active"   # Active / Idle / Down
+        self._config["port"] = 502
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 1.0, -s * 0.7, s * 2.0, s * 1.7)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-self.NODE_SIZE * 0.9, -self.NODE_SIZE * 0.6,
+                                    self.NODE_SIZE * 1.8, self.NODE_SIZE * 1.2), 8, 8)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        rx = self.NODE_SIZE * 0.9
+        ry = self.NODE_SIZE * 0.6
+        scale = min(abs(rx / (dx or 1e-9)), abs(ry / (dy or 1e-9)))
+        return QPointF(center.x() + dx * scale, center.y() + dy * scale)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rx, ry = self.NODE_SIZE * 0.9, self.NODE_SIZE * 0.6
+
+        grad = QLinearGradient(QPointF(-rx, -ry), QPointF(rx, ry))
+        grad.setColorAt(0, QColor("#a5b4fc"))
+        grad.setColorAt(1, QColor("#6366f1"))
+        painter.setPen(QPen(QColor("#4338ca"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-rx, -ry, rx * 2, ry * 2), 8, 8)
+
+        # Status indicator
+        status = self._config.get("status", "Active")
+        status_colors = {"Active": "#10b981", "Idle": "#f59e0b", "Down": "#ef4444"}
+        dot_color = QColor(status_colors.get(status, "#64748b"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(dot_color))
+        painter.drawEllipse(QRectF(rx - 14, -ry + 4, 10, 10))
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+class EngineeringWSNode(BaseNode):
+    """Rose-red rectangle with ⚠ badge — Engineering Workstation (high-risk asset)."""
+
+    def __init__(self, label: str = "EW-1"):
+        super().__init__(NodeType.ENGINEERING_WS, label)
+        self._config["high_risk"] = True
+        self._config["port"] = 0
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 0.9, -s * 0.75, s * 1.8, s * 1.8)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-self.NODE_SIZE * 0.8, -self.NODE_SIZE * 0.6,
+                                    self.NODE_SIZE * 1.6, self.NODE_SIZE * 1.2), 8, 8)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        r = self.NODE_SIZE * 0.65
+        return QPointF(center.x() + dx / dist * r, center.y() + dy / dist * r)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rx, ry = self.NODE_SIZE * 0.8, self.NODE_SIZE * 0.6
+
+        grad = QLinearGradient(QPointF(-rx, -ry), QPointF(rx, ry))
+        grad.setColorAt(0, QColor("#fda4af"))
+        grad.setColorAt(1, QColor("#e11d48"))
+        painter.setPen(QPen(QColor("#9f1239"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-rx, -ry, rx * 2, ry * 2), 8, 8)
+
+        # ⚠ High-risk badge (top-right)
+        badge_font = QFont("DejaVu Sans", 8, QFont.Weight.Bold)
+        painter.setFont(badge_font)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor("#fbbf24")))
+        painter.drawRoundedRect(QRectF(rx - 30, -ry - 6, 34, 14), 3, 3)
+        painter.setPen(QColor("#7f1d1d"))
+        painter.drawText(int(rx - 28), int(-ry + 5), "⚠ RISK")
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+class GatewayRTUNode(BaseNode):
+    """Amber rectangle — Gateway / RTU (DNP3/IEC104)."""
+
+    def __init__(self, label: str = "RTU-1"):
+        super().__init__(NodeType.GATEWAY_RTU, label)
+        self._config["protocol"] = "DNP3"   # DNP3 or IEC104
+        self._config["port"] = 20000
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 0.85, -s * 0.7, s * 1.7, s * 1.7)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-self.NODE_SIZE * 0.75, -self.NODE_SIZE * 0.6,
+                                    self.NODE_SIZE * 1.5, self.NODE_SIZE * 1.2), 6, 6)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        r = self.NODE_SIZE * 0.62
+        return QPointF(center.x() + dx / dist * r, center.y() + dy / dist * r)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rx, ry = self.NODE_SIZE * 0.75, self.NODE_SIZE * 0.6
+
+        grad = QLinearGradient(QPointF(-rx, -ry), QPointF(rx, ry))
+        grad.setColorAt(0, QColor("#fcd34d"))
+        grad.setColorAt(1, QColor("#d97706"))
+        painter.setPen(QPen(QColor("#92400e"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-rx, -ry, rx * 2, ry * 2), 6, 6)
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concrete node types — Level 3 (State)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StatePDCNode(BaseNode):
+    """Deep purple large rectangle — State / Regional PDC."""
+
+    def __init__(self, label: str = "SPDC-1"):
+        super().__init__(NodeType.STATE_PDC, label)
+        self._config["port"] = 4714
+        self._config["connected_pdc_count"] = 0
+        self._config["regional_uplink_connected"] = False
+
+    def boundingRect(self) -> QRectF:
+        s = self.NODE_SIZE
+        return QRectF(-s * 1.1, -s * 0.8, s * 2.2, s * 1.9)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-self.NODE_SIZE, -self.NODE_SIZE * 0.7,
+                                    self.NODE_SIZE * 2.0, self.NODE_SIZE * 1.4), 10, 10)
+        return path
+
+    def get_connection_point(self, toward: QPointF) -> QPointF:
+        center = self.scenePos()
+        dx = toward.x() - center.x()
+        dy = toward.y() - center.y()
+        dist = math.hypot(dx, dy) or 1.0
+        rx = self.NODE_SIZE * 1.0
+        ry = self.NODE_SIZE * 0.7
+        scale = min(abs(rx / (dx or 1e-9)), abs(ry / (dy or 1e-9)))
+        return QPointF(center.x() + dx * scale, center.y() + dy * scale)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rx, ry = self.NODE_SIZE * 1.0, self.NODE_SIZE * 0.7
+
+        grad = QLinearGradient(QPointF(-rx, -ry), QPointF(rx, ry))
+        grad.setColorAt(0, QColor("#c4b5fd"))
+        grad.setColorAt(1, QColor("#7c3aed"))
+        painter.setPen(QPen(QColor("#5b21b6"), 2))
+        painter.setBrush(QBrush(grad))
+        painter.drawRoundedRect(QRectF(-rx, -ry, rx * 2, ry * 2), 10, 10)
+
+        # Regional uplink indicator (top-right corner)
+        uplink = self._config.get("regional_uplink_connected", False)
+        uplink_color = QColor("#10b981") if uplink else QColor("#64748b")
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(uplink_color))
+        painter.drawEllipse(QRectF(rx - 14, -ry + 4, 10, 10))
+
+        # Uplink label
+        small_font = QFont("DejaVu Sans", 7)
+        painter.setFont(small_font)
+        painter.setPen(uplink_color)
+        status_text = "▲ Regional" if uplink else "▽ Regional"
+        painter.drawText(int(rx - 60), int(-ry + 24), status_text)
+
+        self._draw_icon(painter)
+        self._draw_selection_glow(painter)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Concrete node types — Level-agnostic
+# ─────────────────────────────────────────────────────────────────────────────
 
 class ThreatAgentNode(BaseNode):
     """Red triangle with skull — MitM attacker."""
@@ -666,11 +1187,19 @@ class LinkItem(QGraphicsItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 NODE_CLASSES = {
-    NodeType.PMU:          PMUNode,
-    NodeType.PDC:          PDCNode,
-    NodeType.SWITCH:       SwitchNode,
-    NodeType.THREAT_AGENT: ThreatAgentNode,
-    NodeType.VIRTUAL:      VirtualNode,
+    NodeType.CT_VT:          CTVTNode,
+    NodeType.BREAKER:        BreakerNode,
+    NodeType.PMU:            PMUNode,
+    NodeType.PROTECTION_IED: ProtectionIEDNode,
+    NodeType.BCU:            BCUNode,
+    NodeType.PDC:            PDCNode,
+    NodeType.SWITCH:         SwitchNode,
+    NodeType.STATION_HMI:    StationHMINode,
+    NodeType.ENGINEERING_WS: EngineeringWSNode,
+    NodeType.GATEWAY_RTU:    GatewayRTUNode,
+    NodeType.STATE_PDC:      StatePDCNode,
+    NodeType.THREAT_AGENT:   ThreatAgentNode,
+    NodeType.VIRTUAL:        VirtualNode,
 }
 
 def create_node(node_type: str, label: str = "", config: Optional[dict] = None) -> BaseNode:

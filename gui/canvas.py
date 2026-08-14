@@ -4,18 +4,25 @@ gui/canvas.py
 Drag-and-drop topology canvas — the heart of the GridSec Sim GUI.
 
 Implements a Cisco Packet Tracer–style network diagram editor:
-  - Dark grid background
+  - Dark grid background with hierarchical level lanes
   - Node palette on the left (drag to canvas to place)
+  - Nodes snap to their level's horizontal lane
   - Click-drag between nodes to create directed links
   - Right-click for context menu (properties / delete)
   - Double-click to open config dialog
   - Threat Agent node snaps onto a link and intercepts its traffic
   - Save/Load topology as JSON
-  - Minimap (overview) in bottom-left corner of canvas
+  - Smart link protocol defaults based on source/target level
 
 Architecture:
   QGraphicsScene + QGraphicsView
   NodeSignalBridge emits signals → MainWindow handles them
+
+Level lanes (bottom to top):
+  L0 — Process  (y: 400..600)
+  L1 — Bay      (y: 200..400)
+  L2 — Station  (y: 0..200)
+  L3 — State    (y: -200..0)
 """
 
 import json
@@ -38,8 +45,11 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.node_types import (
-    BaseNode, LinkItem, NodeType, NODE_DISPLAY_NAMES,
+    BaseNode, LinkItem, NodeType, NODE_DISPLAY_NAMES, NODE_LEVEL,
+    NODE_SHORT_NAMES, LEVEL_LABELS,
     PMUNode, PDCNode, SwitchNode, ThreatAgentNode, VirtualNode,
+    CTVTNode, BreakerNode, ProtectionIEDNode, BCUNode,
+    StationHMINode, EngineeringWSNode, GatewayRTUNode, StatePDCNode,
     create_node, node_signals, PROTOCOL_COLORS,
 )
 
@@ -59,11 +69,33 @@ class CanvasSignals(QObject):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Grid background scene
+# Level lane layout constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+LANE_HEIGHT = 200   # px per level lane
+# Lane Y ranges (top of lane → bottom of lane), level 3 at top, level 0 at bottom
+# L3: -200..0,  L2: 0..200,  L1: 200..400,  L0: 400..600
+LANE_Y_TOP = {
+    3: -200,
+    2:    0,
+    1:  200,
+    0:  400,
+}
+LANE_Y_BOTTOM = {level: top + LANE_HEIGHT for level, top in LANE_Y_TOP.items()}
+
+# Center Y for each lane (where nodes snap to by default)
+LANE_Y_CENTER = {level: top + LANE_HEIGHT // 2 for level, top in LANE_Y_TOP.items()}
+
+# Canvas left edge for lane labels
+LANE_LABEL_X = -450
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Grid background scene with level lanes
 # ─────────────────────────────────────────────────────────────────────────────
 
 class GridScene(QGraphicsScene):
-    """QGraphicsScene with a dot-grid background."""
+    """QGraphicsScene with a dot-grid background and level lane dividers."""
 
     GRID_SPACING = 32
 
@@ -74,6 +106,7 @@ class GridScene(QGraphicsScene):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
+
         # Draw subtle dots
         gs   = self.GRID_SPACING
         pen  = QPen(QColor(255, 255, 255, 20), 1, Qt.PenStyle.SolidLine)
@@ -87,6 +120,36 @@ class GridScene(QGraphicsScene):
         for x in range(left, right, gs):
             for y in range(top, bottom, gs):
                 painter.drawPoint(x, y)
+
+        # ── Draw level lane dividers and labels ──────────────────────────────
+        lane_pen = QPen(QColor(255, 255, 255, 25), 1, Qt.PenStyle.DashLine)
+        lane_pen.setDashPattern([8, 8])
+        label_font = QFont("Segoe UI", 10, QFont.Weight.DemiBold)
+
+        # Visible rect boundaries
+        vis_left  = int(rect.left())
+        vis_right = int(rect.right())
+
+        for level in [0, 1, 2, 3]:
+            lane_top = LANE_Y_TOP[level]
+
+            # Horizontal divider line at the top of each lane
+            painter.setPen(lane_pen)
+            painter.drawLine(vis_left, lane_top, vis_right, lane_top)
+
+            # Lane label on the left
+            painter.setFont(label_font)
+            painter.setPen(QColor(167, 139, 250, 60))  # faint purple
+            label_text = LEVEL_LABELS.get(level, f"L{level}")
+            painter.drawText(
+                int(max(vis_left + 10, LANE_LABEL_X)),
+                lane_top + 22,
+                label_text,
+            )
+
+        # Bottom boundary of Level 0
+        painter.setPen(lane_pen)
+        painter.drawLine(vis_left, LANE_Y_BOTTOM[0], vis_right, LANE_Y_BOTTOM[0])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,7 +196,7 @@ class NodeConfigDialog(QDialog):
 
         # Port
         self._port_spin = QSpinBox()
-        self._port_spin.setRange(1, 65535)
+        self._port_spin.setRange(0, 65535)
         self._port_spin.setValue(int(cfg.get("port", 4712)))
         form.addRow("Port:", self._port_spin)
 
@@ -185,6 +248,42 @@ class DrawingLine(QGraphicsLineItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Smart protocol defaults based on source → target level
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _default_link_protocol(src_node: BaseNode, dst_node: BaseNode, current: str) -> str:
+    """Choose a sensible default protocol based on node types/levels."""
+    src_level = NODE_LEVEL.get(src_node.node_type, -1)
+    dst_level = NODE_LEVEL.get(dst_node.node_type, -1)
+    src_type  = src_node.node_type
+    dst_type  = dst_node.node_type
+
+    # Ensure src_level <= dst_level (lower→higher) for protocol lookup
+    if src_level > dst_level:
+        src_level, dst_level = dst_level, src_level
+        src_type, dst_type   = dst_type, src_type
+
+    # L0 → L1: sensor wiring or GOOSE
+    if src_level == 0 and dst_level == 1:
+        return "GOOSE"
+
+    # L1 → L2: PMU→PDC uses C37.118, IED/BCU uses GOOSE
+    if src_level == 1 and dst_level == 2:
+        if src_type == NodeType.PMU or dst_type == NodeType.PMU:
+            return "C37.118"
+        return "GOOSE"
+
+    # L2 → L3: PDC→StatePDC uses C37.118, RTU→StatePDC uses DNP3
+    if src_level == 2 and dst_level == 3:
+        if src_type == NodeType.GATEWAY_RTU or dst_type == NodeType.GATEWAY_RTU:
+            return "DNP3"
+        return "C37.118"
+
+    # Same level or agnostic — keep current protocol
+    return current
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Topology canvas view
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -231,15 +330,19 @@ class TopologyCanvas(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setInteractive(True)
 
-        # Enable panning with middle mouse / right-mouse drag
+        # Enable panning with middle mouse or Space + left-click drag
         self._pan_active = False
         self._pan_start  = QPoint()
+        self._space_held = False   # True while spacebar is held down
 
         # Connect node signals
         node_signals.node_double_clicked.connect(self._on_node_double_click)
         node_signals.node_right_clicked.connect(self._on_node_right_click)
         node_signals.link_clicked.connect(self._on_link_click)
         node_signals.node_moved.connect(self._on_node_moved)
+
+        # ── FIX: Connect scene selection changed to handle Properties panel ──
+        self._scene.selectionChanged.connect(self._handle_selection_change)
 
         # Welcome hint text
         self._add_hint()
@@ -265,21 +368,28 @@ class TopologyCanvas(QGraphicsView):
     # ── Node placement ───────────────────────────────────────────────────────
 
     def add_node(self, node_type: str, scene_pos: Optional[QPointF] = None) -> BaseNode:
-        """Create and place a node on the canvas."""
+        """Create and place a node on the canvas, snapping to its level lane."""
         # Auto-generate label
         count = self._node_counter.get(node_type, 0) + 1
         self._node_counter[node_type] = count
-        short = {"PMU": "PMU", "PDC": "PDC", "SWITCH": "SW",
-                 "THREAT_AGENT": "Threat", "VIRTUAL": "VNode"}
-        label = f"{short.get(node_type, node_type)}-{count}"
+        label = f"{NODE_SHORT_NAMES.get(node_type, node_type)}-{count}"
 
         node = create_node(node_type, label=label)
 
         if scene_pos is None:
             # Place in center of view with offset
             center = self.mapToScene(self.viewport().rect().center())
-            scene_pos = QPointF(center.x() + (count % 5) * 40,
+            scene_pos = QPointF(center.x() + (count % 5) * 80,
                                 center.y() + (count % 3) * 40)
+
+        # Snap Y to the correct level lane
+        level = NODE_LEVEL.get(node_type, -1)
+        if level >= 0 and level in LANE_Y_CENTER:
+            # Snap to lane center Y, keep X as-is
+            snapped_y = LANE_Y_CENTER[level]
+            # Allow some spread within the lane
+            offset_y = ((count - 1) % 3 - 1) * 50
+            scene_pos = QPointF(scene_pos.x(), snapped_y + offset_y)
 
         node.setPos(scene_pos)
         self._scene.addItem(node)
@@ -300,15 +410,19 @@ class TopologyCanvas(QGraphicsView):
         hint._is_hint = True
         hint.setBrush(QBrush(QColor("#3d3d5c")))
         hint.setFont(QFont("Segoe UI", 16))
-        hint.setPos(-250, -20)
+        hint.setPos(-250, 180)
         hint.setZValue(-2)
         self._scene.addItem(hint)
 
     # ── Link creation ────────────────────────────────────────────────────────
 
     def add_link(self, src: BaseNode, dst: BaseNode, protocol: Optional[str] = None) -> LinkItem:
-        """Create a directed link between two nodes."""
-        link = LinkItem(src, dst, protocol or self._protocol)
+        """Create a directed link between two nodes with smart protocol defaults."""
+        # Determine protocol: explicit > smart default > canvas default
+        if protocol is None:
+            protocol = _default_link_protocol(src, dst, self._protocol)
+
+        link = LinkItem(src, dst, protocol)
         self._scene.addItem(link)
         self._links.append(link)
         # If dst is a ThreatAgent, auto-intercept
@@ -418,6 +532,9 @@ class TopologyCanvas(QGraphicsView):
     def get_all_links(self) -> List[LinkItem]:
         return list(self._links)
 
+    def get_state_pdc_nodes(self) -> List[StatePDCNode]:
+        return [n for n in self._nodes if n.node_type == NodeType.STATE_PDC]
+
     # ── Threat agent placement on link ───────────────────────────────────────
 
     def _snap_threat_to_link(self, agent: ThreatAgentNode) -> Optional[LinkItem]:
@@ -472,6 +589,20 @@ class TopologyCanvas(QGraphicsView):
             act_activate = menu.addAction("Set as Active Attacker")
             act_activate.triggered.connect(lambda: self._activate_threat(node))
 
+        # Breaker toggle
+        if node.node_type == NodeType.BREAKER:
+            state = node._config.get("state", "closed")
+            toggle_text = "Open Breaker" if state == "closed" else "Close Breaker"
+            act_toggle = menu.addAction(toggle_text)
+            act_toggle.triggered.connect(lambda: self._toggle_breaker(node))
+
+        # State PDC regional uplink
+        if node.node_type == NodeType.STATE_PDC:
+            uplink = node._config.get("regional_uplink_connected", False)
+            uplink_text = "Disconnect Regional Uplink" if uplink else "Connect Regional Uplink"
+            act_uplink = menu.addAction(uplink_text)
+            act_uplink.triggered.connect(lambda: self._toggle_regional_uplink(node))
+
         act_config.triggered.connect(lambda: self._open_config_dialog(node))
         act_delete.triggered.connect(lambda: self._delete_item(node))
         menu.exec(screen_pos)
@@ -485,7 +616,7 @@ class TopologyCanvas(QGraphicsView):
         """)
 
         act_proto = menu.addMenu("Change Protocol")
-        for proto in ["C37.118", "DNP3", "Modbus", "IEC104"]:
+        for proto in ["C37.118", "DNP3", "Modbus", "IEC104", "GOOSE"]:
             a = act_proto.addAction(proto)
             a.triggered.connect(lambda checked, p=proto: self._set_link_protocol(link, p))
 
@@ -504,6 +635,20 @@ class TopologyCanvas(QGraphicsView):
             n._config["active"] = False
             n.update()
         node._config["active"] = True
+        node.update()
+        self.signals.node_config_changed.emit(node)
+
+    def _toggle_breaker(self, node: BaseNode) -> None:
+        """Toggle breaker state between open and closed."""
+        current = node._config.get("state", "closed")
+        node._config["state"] = "open" if current == "closed" else "closed"
+        node.update()
+        self.signals.node_config_changed.emit(node)
+
+    def _toggle_regional_uplink(self, node: BaseNode) -> None:
+        """Toggle regional uplink connection on State PDC."""
+        current = node._config.get("regional_uplink_connected", False)
+        node._config["regional_uplink_connected"] = not current
         node.update()
         self.signals.node_config_changed.emit(node)
 
@@ -539,8 +684,10 @@ class TopologyCanvas(QGraphicsView):
     def mousePressEvent(self, event) -> None:
         scene_pos = self.mapToScene(event.pos())
 
-        if event.button() == Qt.MouseButton.MiddleButton:
-            # Pan start
+        # ── Space + left-click OR middle-click = PAN ─────────────────────
+        if event.button() == Qt.MouseButton.MiddleButton or (
+            event.button() == Qt.MouseButton.LeftButton and self._space_held
+        ):
             self._pan_active = True
             self._pan_start  = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -578,7 +725,7 @@ class TopologyCanvas(QGraphicsView):
                     else:
                         # Complete the link
                         if node is not self._link_start_node:
-                            self.add_link(self._link_start_node, node, self._protocol)
+                            self.add_link(self._link_start_node, node)
                         self._cancel_drawing()
                 event.accept()
                 return
@@ -604,9 +751,15 @@ class TopologyCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() == Qt.MouseButton.MiddleButton or (
+            event.button() == Qt.MouseButton.LeftButton and self._pan_active
+        ):
             self._pan_active = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Restore cursor: open hand if space still held, else arrow
+            if self._space_held:
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -632,6 +785,12 @@ class TopologyCanvas(QGraphicsView):
         self.scale(factor, factor)
 
     def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            # Enter hand/pan mode while space is held
+            self._space_held = True
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_selected()
         elif event.key() == Qt.Key.Key_Escape:
@@ -640,6 +799,16 @@ class TopologyCanvas(QGraphicsView):
         elif event.key() == Qt.Key.Key_F:
             self.zoom_fit()
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+            # Exit hand/pan mode
+            self._space_held = False
+            self._pan_active = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
 
     # ── Drag accept (from palette) ────────────────────────────────────────────
 
@@ -658,9 +827,10 @@ class TopologyCanvas(QGraphicsView):
             self.add_node(node_type, scene_pos)
             event.acceptProposedAction()
 
-    # ── Selection change ──────────────────────────────────────────────────────
+    # ── Selection change (FIX: this was never connected before) ──────────────
 
     def _handle_selection_change(self) -> None:
+        """Called when scene selection changes — updates Properties panel."""
         selected = self._scene.selectedItems()
         for item in selected:
             if isinstance(item, BaseNode):
@@ -669,6 +839,7 @@ class TopologyCanvas(QGraphicsView):
             if isinstance(item, LinkItem):
                 self.signals.link_selected.emit(item)
                 return
+        # Nothing selected — clear properties
         self.signals.node_selected.emit(None)
 
     def set_simulation_running(self, running: bool) -> None:
