@@ -8,9 +8,9 @@ Layout (Cisco Packet Tracer style):
   │  Menu Bar + Toolbar                                          │
   ├──────────────┬─────────────────────────────┬────────────────┤
   │  Node Palette│                             │  Properties    │
-  │  + Protocol  │   Topology Canvas           │  Panel         │
-  │  selector    │   (QGraphicsView)           │  + Attack      │
-  │              │                             │  Panel         │
+  │  (4 levels)  │   Topology Canvas           │  Panel         │
+  │  + Protocol  │   (QGraphicsView)           │  + Attack      │
+  │  selector    │   with level lanes          │  Panel         │
   ├──────────────┴────────────────┬────────────┴────────────────┤
   │  Waveform Viewer              │  Packet Log                 │
   ├───────────────────────────────┴─────────────────────────────┤
@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QToolBar, QStatusBar,
     QTabWidget, QScrollBar, QSizePolicy, QMenu,
     QDialog, QFormLayout, QLineEdit, QSpinBox,
+    QTreeWidget, QTreeWidgetItem,
 )
 
 from core.attack_engine import AttackEngine, AttackType
@@ -64,8 +65,12 @@ from gui.attack_panel import AttackPanel
 from gui.canvas import TopologyCanvas
 from gui.integration_panel import IntegrationPanel
 from gui.node_types import (
-    NodeType, NODE_DISPLAY_NAMES, NODE_ICON_TEXT,
+    NodeType, NODE_DISPLAY_NAMES, NODE_ICON_TEXT, NODE_COLORS,
+    NODE_LEVEL, LEVEL_LABELS,
     BaseNode, PMUNode, PDCNode, ThreatAgentNode,
+    CTVTNode, BreakerNode, ProtectionIEDNode, BCUNode,
+    SwitchNode, StationHMINode, EngineeringWSNode,
+    GatewayRTUNode, StatePDCNode, VirtualNode,
 )
 from gui.properties_panel import PropertiesPanel
 from gui.waveform_viewer import WaveformViewer
@@ -100,15 +105,34 @@ class WorkerRelay(QObject):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Node palette item
+# Node palette — hierarchical level groups
 # ─────────────────────────────────────────────────────────────────────────────
 
-PALETTE_NODES = [
-    (NodeType.PMU,          "[~] PMU",          "Phasor Measurement Unit"),
-    (NodeType.PDC,          "[#] PDC",           "Data Concentrator / openPDC"),
-    (NodeType.SWITCH,       "[>] Switch",        "Network switch"),
-    (NodeType.THREAT_AGENT, "[!] Threat Agent",  "Man-in-the-Middle attacker"),
-    (NodeType.VIRTUAL,      "[o] Virtual Node",  "Generic virtual device"),
+PALETTE_LEVELS = [
+    ("L0 — Process", [
+        (NodeType.CT_VT,    "CT/VT Sensor",        "Current/Voltage transformer sensor"),
+        (NodeType.BREAKER,  "Circuit Breaker",      "Binary open/closed switching device"),
+    ]),
+    ("L1 — Bay", [
+        (NodeType.PMU,            "PMU",              "Phasor Measurement Unit"),
+        (NodeType.PROTECTION_IED, "Protection IED",   "GOOSE-speaking protection relay"),
+        (NodeType.BCU,            "Bay Control Unit",  "Bay-level switching control"),
+    ]),
+    ("L2 — Station", [
+        (NodeType.PDC,            "Local PDC",          "Data Concentrator / openPDC"),
+        (NodeType.SWITCH,         "Station Switch",     "Network switch"),
+        (NodeType.STATION_HMI,    "Station HMI",        "HMI / SCADA Server"),
+        (NodeType.ENGINEERING_WS, "Eng. Workstation",    "⚠ High-risk asset"),
+        (NodeType.GATEWAY_RTU,    "Gateway / RTU",       "DNP3/IEC104 uplink to state"),
+    ]),
+    ("L3 — State", [
+        (NodeType.STATE_PDC,  "State PDC",  "Regional PDC — aggregates from local PDCs"),
+    ]),
+]
+
+PALETTE_UTILITY = [
+    (NodeType.THREAT_AGENT, "Threat Agent",  "Man-in-the-Middle attacker"),
+    (NodeType.VIRTUAL,      "Virtual Node",  "Generic virtual device"),
 ]
 
 
@@ -203,14 +227,14 @@ class MainWindow(QMainWindow):
         right_panel = self._build_right_panel()
         self._h_splitter.addWidget(right_panel)
         self._h_splitter.setStretchFactor(2, 0)
-        self._h_splitter.setSizes([200, 1000, 300])
+        self._h_splitter.setSizes([220, 1000, 300])
 
         main_layout.addWidget(self._h_splitter)
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMinimumWidth(180)
-        panel.setMaximumWidth(220)
+        panel.setMinimumWidth(200)
+        panel.setMaximumWidth(260)
         panel.setStyleSheet("background: #252535; border-right: 1px solid #2d2d44;")
 
         layout = QVBoxLayout(panel)
@@ -232,40 +256,155 @@ class MainWindow(QMainWindow):
         help_lbl.setStyleSheet("color: #4a5568; font-size: 11px; padding: 2px 0;")
         layout.addWidget(help_lbl)
 
-        # Palette list
-        self._palette = QListWidget()
-        self._palette.setDragEnabled(True)
-        self._palette.setStyleSheet("QListWidget { border: none; background: transparent; }")
-        for node_type, display_name, tooltip in PALETTE_NODES:
-            item = QListWidgetItem(display_name)
-            item.setData(Qt.ItemDataRole.UserRole, node_type)
-            item.setToolTip(tooltip)
-            self._palette.addItem(item)
+        # ── Vertical splitter: tree widget | protocol section ────────────────
+        left_splitter = QSplitter(Qt.Orientation.Vertical)
+        left_splitter.setHandleWidth(6)
+        left_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: #3d3d5c;
+                border-radius: 2px;
+                margin: 2px 30px;
+                min-height: 4px;
+            }
+            QSplitter::handle:hover {
+                background: #7c3aed;
+            }
+        """)
 
-        self._palette.itemDoubleClicked.connect(self._on_palette_double_click)
-        self._palette.setDragDropMode(QListWidget.DragDropMode.DragOnly)
-        layout.addWidget(self._palette)
+        # ── Top: Hierarchical palette tree ───────────────────────────────────
+        self._palette_tree = QTreeWidget()
+        self._palette_tree.setHeaderHidden(True)
+        self._palette_tree.setDragEnabled(True)
+        self._palette_tree.setDragDropMode(QTreeWidget.DragDropMode.DragOnly)
+        self._palette_tree.setRootIsDecorated(True)
+        self._palette_tree.setAnimated(True)
+        self._palette_tree.setIndentation(16)
+        self._palette_tree.setStyleSheet("""
+            QTreeWidget {
+                border: none;
+                background: transparent;
+                outline: 0;
+            }
+            QTreeWidget::item {
+                padding: 4px 4px;
+                border-radius: 4px;
+                margin: 1px 0;
+            }
+            QTreeWidget::item:hover {
+                background: #2d2d44;
+            }
+            QTreeWidget::item:selected {
+                background: #3d3d5c;
+            }
+            QTreeWidget::branch {
+                background: transparent;
+            }
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                image: none;
+                border-image: none;
+            }
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                image: none;
+                border-image: none;
+            }
+        """)
 
-        # Protocol selector
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("border: none; background: #3d3d5c; max-height: 1px;")
-        layout.addWidget(sep2)
+        # Build level groups
+        for level_label, nodes in PALETTE_LEVELS:
+            level_item = QTreeWidgetItem(self._palette_tree, [level_label])
+            level_item.setFlags(level_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+            level_item.setExpanded(True)
+            font = level_item.font(0)
+            font.setBold(True)
+            font.setPointSize(10)
+            level_item.setFont(0, font)
+            level_item.setForeground(0, QColor("#a78bfa"))
+
+            for node_type, display_name, tooltip in nodes:
+                icon_text = NODE_ICON_TEXT.get(node_type, "?")
+                color = NODE_COLORS.get(node_type, "#8b5cf6")
+                child = QTreeWidgetItem(level_item, [f"{icon_text}  {display_name}"])
+                child.setData(0, Qt.ItemDataRole.UserRole, node_type)
+                child.setToolTip(0, tooltip)
+                child.setForeground(0, QColor(color))
+
+        # Utility separator
+        sep_item = QTreeWidgetItem(self._palette_tree, ["── Utility ──"])
+        sep_item.setFlags(sep_item.flags() & ~Qt.ItemFlag.ItemIsDragEnabled)
+        sep_item.setForeground(0, QColor("#3d3d5c"))
+        font = sep_item.font(0)
+        font.setPointSize(9)
+        sep_item.setFont(0, font)
+
+        for node_type, display_name, tooltip in PALETTE_UTILITY:
+            icon_text = NODE_ICON_TEXT.get(node_type, "?")
+            color = NODE_COLORS.get(node_type, "#8b5cf6")
+            child = QTreeWidgetItem(self._palette_tree, [f"{icon_text}  {display_name}"])
+            child.setData(0, Qt.ItemDataRole.UserRole, node_type)
+            child.setToolTip(0, tooltip)
+            child.setForeground(0, QColor(color))
+
+        self._palette_tree.itemDoubleClicked.connect(self._on_palette_double_click)
+
+        # ── Drag support for tree items ──────────────────────────────────────
+        self._palette_tree.startDrag = self._palette_tree_start_drag
+
+        left_splitter.addWidget(self._palette_tree)
+
+        # ── Bottom: Protocol selector section ────────────────────────────────
+        proto_section = QWidget()
+        proto_layout = QVBoxLayout(proto_section)
+        proto_layout.setContentsMargins(0, 6, 0, 4)
+        proto_layout.setSpacing(6)
 
         proto_title = QLabel("Link Protocol")
         proto_title.setStyleSheet("color: #a78bfa; font-weight: 700; font-size: 11px; padding: 4px 0;")
-        layout.addWidget(proto_title)
+        proto_layout.addWidget(proto_title)
 
         self._proto_combo = QComboBox()
         self._proto_combo.addItems(["C37.118", "DNP3", "Modbus", "IEC104", "GOOSE"])
         self._proto_combo.currentTextChanged.connect(
             lambda p: self._canvas.set_protocol(p)
         )
-        layout.addWidget(self._proto_combo)
+        proto_layout.addWidget(self._proto_combo)
 
-        layout.addStretch()
+        # Protocol info label
+        proto_info = QLabel(
+            "<small style='color:#4a5568'>"
+            "Auto-selected by node types.<br>"
+            "Override here if needed.</small>"
+        )
+        proto_info.setTextFormat(Qt.TextFormat.RichText)
+        proto_info.setWordWrap(True)
+        proto_layout.addWidget(proto_info)
+
+        proto_layout.addStretch()
+
+        left_splitter.addWidget(proto_section)
+
+        # Default split: tree gets most space, protocol section gets ~100px
+        left_splitter.setSizes([500, 120])
+        left_splitter.setCollapsible(0, False)  # tree can't be collapsed
+        left_splitter.setCollapsible(1, False)  # protocol section can't be collapsed
+
+        layout.addWidget(left_splitter)
 
         return panel
+
+
+    def _palette_tree_start_drag(self, supported_actions):
+        """Custom drag handler for the palette tree widget."""
+        item = self._palette_tree.currentItem()
+        if item and item.data(0, Qt.ItemDataRole.UserRole):
+            from PyQt6.QtGui import QDrag
+            from PyQt6.QtCore import QMimeData
+            mime = QMimeData()
+            mime.setText(item.data(0, Qt.ItemDataRole.UserRole))
+            drag = QDrag(self._palette_tree)
+            drag.setMimeData(mime)
+            drag.exec(Qt.DropAction.CopyAction)
 
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
@@ -429,10 +568,17 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
-        # Quick node buttons
-        for node_type, label, _ in PALETTE_NODES[:4]:
+        # Quick node buttons — key types from each level
+        quick_nodes = [
+            (NodeType.PMU,       "PMU"),
+            (NodeType.PDC,       "PDC"),
+            (NodeType.SWITCH,    "SW"),
+            (NodeType.STATE_PDC, "SPDC"),
+            (NodeType.THREAT_AGENT, "Threat"),
+        ]
+        for node_type, short in quick_nodes:
             icon = NODE_ICON_TEXT.get(node_type, "?")
-            act  = tb.addAction(f"{icon} +{label.split()[1]}")
+            act  = tb.addAction(f"{icon} +{short}")
             act.triggered.connect(lambda checked, t=node_type: self._canvas.add_node(t))
 
     def _set_canvas_mode(self, mode: str) -> None:
@@ -521,25 +667,12 @@ class MainWindow(QMainWindow):
 
         # Properties panel → canvas
         self._props_panel.config_applied.connect(self._on_config_applied)
+        self._props_panel.regional_uplink_toggled.connect(self._on_regional_uplink_toggled)
 
         # Relay (background threads → main thread)
         self._relay.pmu_frame_received.connect(self._on_pmu_frame)
         self._relay.proxy_packet.connect(self._on_proxy_packet)
         self._relay.simulation_error.connect(self._on_simulation_error)
-
-        # Palette drag
-        self._palette.startDrag = self._palette_start_drag
-
-    def _palette_start_drag(self, supported_actions):
-        item = self._palette.currentItem()
-        if item:
-            from PyQt6.QtGui import QDrag
-            from PyQt6.QtCore import QMimeData
-            mime = QMimeData()
-            mime.setText(item.data(Qt.ItemDataRole.UserRole))
-            drag = QDrag(self._palette)
-            drag.setMimeData(mime)
-            drag.exec(Qt.DropAction.CopyAction)
 
     # ── Simulation control ────────────────────────────────────────────────────
 
@@ -833,6 +966,8 @@ class MainWindow(QMainWindow):
     def _on_node_selected(self, node) -> None:
         if node:
             self._props_panel.show_node(node)
+        else:
+            self._props_panel.clear()
 
     def _on_link_selected(self, link) -> None:
         if link:
@@ -842,16 +977,26 @@ class MainWindow(QMainWindow):
         self._props_panel.show_node(node)
 
     def _on_config_applied(self, node: BaseNode, cfg: dict) -> None:
-        self._log(f"[CFG] {node.label} configured: {cfg['ip']}:{cfg['port']} {cfg['proto']}", "system")
+        self._log(f"[CFG] {node.label} configured: {cfg}", "system")
+
+    def _on_regional_uplink_toggled(self, node: BaseNode, connected: bool) -> None:
+        """Handle regional uplink toggle from Properties panel."""
+        ts = time.strftime("%H:%M:%S")
+        status = "link up" if connected else "link down"
+        self._log(
+            f"[{ts}] State PDC → Regional: {status} (C37.118, hardcoded)",
+            "system"
+        )
 
     def _on_simulation_error(self, msg: str) -> None:
         QMessageBox.critical(self, "Simulation Error", msg)
 
     # ── Palette double-click (add node) ───────────────────────────────────────
 
-    def _on_palette_double_click(self, item) -> None:
-        node_type = item.data(Qt.ItemDataRole.UserRole)
-        self._canvas.add_node(node_type)
+    def _on_palette_double_click(self, item, column) -> None:
+        node_type = item.data(0, Qt.ItemDataRole.UserRole)
+        if node_type:
+            self._canvas.add_node(node_type)
 
     # ── Attack selection ──────────────────────────────────────────────────────
 
@@ -914,11 +1059,12 @@ class MainWindow(QMainWindow):
 
     def _show_about(self) -> None:
         QMessageBox.about(self, "About GridSec Sim",
-            "<h3>GridSec Sim v1.0</h3>"
+            "<h3>GridSec Sim v2.0</h3>"
             "<p>Smart Grid Cybersecurity Simulation Tool</p>"
-            "<p>IEEE C37.118 Man-in-the-Middle Attack Simulator</p>"
+            "<p>Hierarchical Substation Automation Model</p>"
             "<br>"
-            "<p><b>Protocols:</b> IEEE C37.118-2011, DNP3, Modbus TCP, IEC 60870-5-104</p>"
+            "<p><b>Levels:</b> Process (L0) → Bay (L1) → Station (L2) → State (L3)</p>"
+            "<p><b>Protocols:</b> IEEE C37.118-2011, DNP3, Modbus TCP, IEC 60870-5-104, GOOSE</p>"
             "<p><b>Attacks:</b> Noise, Ramp, Pulse, Override, Replay, Delay, Drop, Scale</p>"
             "<br>"
             "<p style='color: #94a3b8; font-size: 11px;'>"
