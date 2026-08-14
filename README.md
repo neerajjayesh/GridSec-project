@@ -1,144 +1,173 @@
-# GridSec Sim — Smart Grid Cybersecurity Simulation Tool
+# GridSec Sim
 
-> A Packet Tracer-style man-in-the-middle attack simulator for ICS/SCADA protocols.
+A **Smart Grid Cybersecurity Simulation Tool** — a Man-in-the-Middle attack simulator for IEEE C37.118 synchrophasor protocols, inspired by NetSim Cyber.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square)
-![PyQt6](https://img.shields.io/badge/GUI-PyQt6-green?style=flat-square)
-![Protocols](https://img.shields.io/badge/Protocols-C37.118%20%7C%20DNP3%20%7C%20Modbus%20%7C%20GOOSE-orange?style=flat-square)
+---
 
-## Overview
+## What It Does
 
-GridSec Sim simulates real-world cyberattacks on smart grid infrastructure. It generates genuine IEEE C37.118 synchrophasor data, intercepts it via a man-in-the-middle proxy, applies attack modules, and sends the modified data to openPDC — all while generating real network traffic visible in Wireshark, Zeek, and commercial OT security tools.
+GridSec Sim lets you:
+- **Simulate a PMU** (Phasor Measurement Unit) generating real IEEE C37.118 binary frames
+- **Intercept the data stream** with a built-in MitM proxy
+- **Apply cyberattack modules** (noise injection, frequency override, replay attacks, packet drop, and more)
+- **Visualize the attack** in real-time via a waveform viewer
+- **Forward tampered data to openPDC** (or any C37.118-compatible PDC)
+- **Design network topologies** on a Cisco Packet Tracer–style drag-and-drop canvas
 
-## Features
+---
 
-- **Drag-and-drop topology canvas** (Cisco Packet Tracer style) — PMU, PDC, Switch, Threat Agent nodes  
-- **PMU Simulator** — generates real IEEE C37.118 frames at 30 fps with 3-phase phasors  
-- **MitM Proxy Engine** — intercepts, modifies, and forwards packets  
-- **10 Attack Modules** mapped to MITRE ATT&CK for ICS  
-- **4 Protocol Simulators** — C37.118, DNP3, Modbus/TCP, IEC 61850 GOOSE  
-- **Live Waveform Viewer** — real-time voltage and frequency plots  
-- **Professional OT Integrations** — Wireshark, Zeek, Dragos, Claroty, Splunk, REST API, STIX 2.1  
+## Requirements
 
-## Protocols
+- **OS**: Ubuntu 22.04 (WSL2 on Windows or bare Linux VM)
+- **Python**: 3.10 or higher
+- **Display**: Required for the GUI (use WSLg, VcXsrv, or X410 for WSL2)
 
-| Protocol | Port | Transport | Wireshark Filter |
-|----------|------|-----------|-----------------|
-| IEEE C37.118 (Synchrophasor) | 4712 | UDP | `udp.port == 4712` |
-| DNP3 | 20000 | UDP | `dnp3` |
-| Modbus/TCP | 502 | TCP | `modbus` |
-| IEC 61850 GOOSE | — | Raw Ethernet | `goose` |
+---
 
-## Attack Modules
-
-| Attack | MITRE ATT&CK ICS | What it does |
-|--------|-----------------|-------------|
-| Noise Injection | T0815 | Adds Gaussian noise to phasor/frequency values |
-| Replay Attack | T0830 | Re-sends old captured frames instead of live data |
-| Data Delay | T0830 | Buffers and delays packets by a configurable time |
-| Packet Drop | T0800 | Silently drops packets (availability attack) |
-| Frequency Override | T0836 | Forces a false fixed frequency value |
-| Magnitude Override | T0836 | Forces a false voltage magnitude |
-| Angle Override | T0836 | Manipulates phase angles |
-| Ramp Attack | T0831 | Gradually drifts all values upward |
-| Pulse Attack | T0801 | Injects periodic spikes |
-| Scale Attack | T0836 | Multiplies all measurements by a factor |
-
-## External Integrations
-
-| Tool | Integration Method | Format |
-|------|--------------------|--------|
-| Wireshark, Zeek, Arkime | libpcap file + live FIFO pipe | `.pcap` |
-| Security Onion | `so-import-pcap` | `.pcap` |
-| Dragos, Claroty, Nozomi | Syslog/CEF (RFC 5424) + REST API | CEF, JSON |
-| Splunk, QRadar, Sentinel | Syslog/CEF | CEF |
-| OpenCTI, MISP | STIX 2.1 export | STIX 2.1 bundle |
-| Custom / SOAR | REST API (11 endpoints + SSE) | JSON |
-
-## Installation
+## Installation (Linux / WSL2)
 
 ```bash
-git clone https://github.com/neerajjayesh/GridSec-project.git
-cd GridSec-project
+# Clone or copy the project to your Linux environment
+cd GridSecSim
+
+# Run the one-command installer
 bash install.sh
+```
+
+The installer will:
+1. Verify Python 3.10+
+2. Install system packages (`libxcb`, `libgl1`, etc.)
+3. Create a Python virtual environment (`venv/`)
+4. Install all Python dependencies
+
+---
+
+## Running the App
+
+```bash
+cd GridSecSim
 source venv/bin/activate
 python main.py
 ```
 
-For GOOSE (requires raw Ethernet socket):
+### WSL2 Display Setup (if needed)
+
+**Option A — WSLg** (Windows 11 with WSL2, auto-configured):
 ```bash
-sudo python main.py
-# OR (one-time capability grant):
-sudo setcap cap_net_raw+eip $(readlink -f $(which python3))
-python main.py
+# Just run python main.py — WSLg handles display automatically
 ```
+
+**Option B — VcXsrv** (Windows 10):
+1. Install [VcXsrv](https://sourceforge.net/projects/vcxsrv/)
+2. Launch XLaunch → "Multiple windows" → Disable access control
+3. In WSL2: `export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0`
+4. Then run `python main.py`
+
+---
+
+## Quick Start — End-to-End Simulation
+
+1. Launch the app: `python main.py`
+2. **Drag a PMU node** onto the canvas → right-click → set IP=`127.0.0.1`, Port=`4712`
+3. **Drag a PDC node** → right-click → set IP=`127.0.0.1`, Port=`4713`
+4. **Draw a link** between PMU and PDC (click Connect, then click each node)
+5. **Drag a Threat Agent** onto the link (it becomes the MitM)
+6. Open **Attack Panel** (right side) → select "Noise Attack" → set std_dev=`2.0`
+7. Click **Run Simulation** (toolbar)
+8. Watch the **waveform viewer** — green = clean signal, red = tampered signal
+9. Read the **packet log** — attacked packets shown in red
+
+---
+
+## openPDC Integration
+
+openPDC listens for C37.118 data on a configurable port (default: **TCP 4712**).
+
+To forward the tampered stream to openPDC:
+1. Ensure openPDC is running on your Windows host or Linux VM
+2. In the PDC node properties, set the IP to your openPDC host (e.g., `192.168.1.100`) and Port=`4712`
+3. Run the simulation — GridSec Sim's proxy will forward each (possibly modified) frame to openPDC
+
+You can verify the tampered data by observing the openPDC waveform display showing corrupted voltage/frequency readings.
+
+---
+
+## Attack Modules
+
+| Attack | Description |
+|--------|-------------|
+| **Noise** | Gaussian random noise on phasor magnitudes |
+| **Ramp** | Linear drift of magnitude or frequency over time |
+| **Pulse** | Periodic sudden spike in a field |
+| **Frequency Override** | Force FREQ field to a specific value (45–65 Hz) |
+| **Magnitude Override** | Force a specific phasor's magnitude |
+| **Angle Override** | Force a specific phasor's angle |
+| **Replay** | Record N frames and loop-replay them (freeze attack) |
+| **Delay** | Inject latency (milliseconds) before forwarding |
+| **Drop** | Randomly discard X% of packets |
+| **Scale** | Multiply all phasor magnitudes by a scale factor |
+
+---
 
 ## Project Structure
 
 ```
-GridSec-project/
-├── main.py                    # Application entry point
-├── install.sh                 # Auto-installer (Python deps + venv)
+GridSecSim/
+├── main.py                  # App entry point
+├── requirements.txt         # Python dependencies
+├── install.sh               # One-command Linux installer
+├── README.md                # This file
+│
 ├── core/
-│   ├── attack_engine.py       # 10 MitM attack modules
-│   ├── pmu_simulator.py       # IEEE C37.118 PMU simulator
-│   ├── pdc_proxy.py           # Man-in-the-middle proxy engine
-│   ├── dnp3_simulator.py      # DNP3 outstation simulator
-│   ├── goose_simulator.py     # IEC 61850 GOOSE publisher
-│   ├── modbus_simulator.py    # Modbus TCP server + polling master
-│   ├── pcap_writer.py         # libpcap file writer
-│   ├── rest_api.py            # REST API server (11 endpoints)
-│   ├── integration_manager.py # Central OT tool integration hub
-│   └── traffic_filter.py      # Packet filtering rules
+│   ├── pmu_simulator.py     # IEEE C37.118 PMU data generator thread
+│   ├── pdc_proxy.py         # MitM proxy (PMU → attack → openPDC)
+│   ├── packet_parser.py     # C37.118 binary frame parser/rebuilder
+│   ├── attack_engine.py     # All 10 attack modules
+│   └── traffic_filter.py   # Packet filter rules
+│
+├── protocols/
+│   ├── c37118.py            # Full IEEE C37.118-2011 encoder/decoder
+│   ├── dnp3.py              # DNP3 stub
+│   ├── modbus.py            # Modbus TCP stub
+│   └── iec104.py            # IEC 60870-5-104 stub
+│
 ├── gui/
-│   ├── main_window.py         # Main PyQt6 window
-│   ├── canvas.py              # Drag-and-drop topology canvas
-│   ├── attack_panel.py        # Attack configuration UI
-│   ├── integration_panel.py   # External integrations UI (5 tabs)
-│   ├── waveform_viewer.py     # Live matplotlib waveform plots
-│   ├── properties_panel.py    # Node properties panel
-│   └── node_types.py          # Node definitions and icons
-└── protocols/
-    ├── c37118.py              # IEEE C37.118.2 encoder/decoder
-    ├── dnp3.py                # DNP3 Data Link + CRC-16/DNP
-    ├── modbus.py              # Modbus/TCP MBAP header + FCs
-    └── goose.py               # IEC 61850 GOOSE ASN.1 BER encoder
+│   ├── main_window.py       # Main window (Packet Tracer layout)
+│   ├── canvas.py            # Drag-and-drop topology canvas
+│   ├── node_types.py        # PMU, PDC, Switch, ThreatAgent, Virtual nodes
+│   ├── properties_panel.py  # Node/link configuration panel
+│   ├── attack_panel.py      # Attack configuration panel
+│   ├── waveform_viewer.py   # Live matplotlib signal viewer
+│   └── styles.qss           # Dark theme Qt stylesheet
+│
+└── assets/icons/            # Node icon images
 ```
 
-## REST API Quick Reference
+---
 
-```bash
-# Health check (no auth required)
-curl http://localhost:8080/api/v1/status
+## Protocol Reference
 
-# Get incident log
-curl -H "Authorization: Bearer <key>" http://localhost:8080/api/v1/incidents
+- **IEEE C37.118-2011**: Primary simulated protocol. Synchrophasor data standard.
+- **DNP3**: Stub implementation — structure only, no live simulation yet.
+- **Modbus TCP**: Stub implementation.
+- **IEC 60870-5-104**: Stub implementation.
 
-# Enable attack remotely
-curl -X POST -H "Authorization: Bearer <key>" \
-     -H "Content-Type: application/json" \
-     -d '{"type":"NOISE","params":{"std_dev":5.0}}' \
-     http://localhost:8080/api/v1/attack/enable
+---
 
-# Export STIX 2.1 threat intelligence
-curl -H "Authorization: Bearer <key>" \
-     http://localhost:8080/api/v1/export/stix -o threats.json
+## Troubleshooting
 
-# Live event stream (Server-Sent Events)
-curl --no-buffer -H "Authorization: Bearer <key>" \
-     http://localhost:8080/api/v1/events
-```
+| Problem | Solution |
+|---------|----------|
+| `cannot connect to X server` | Set `DISPLAY` env var — see WSL2 Display Setup above |
+| `Address already in use` | Port 4712 is busy — change proxy port in node properties |
+| `No module named PyQt6` | Run `source venv/bin/activate` first |
+| `openPDC not receiving data` | Check firewall rules; ensure openPDC listens on correct port |
+| GUI freezes | All network ops run in threads — if it freezes, report as bug |
 
-## Requirements
-
-- Ubuntu 22.04+ or WSL2
-- Python 3.10+
-- PyQt6, matplotlib, numpy, scipy
+---
 
 ## License
 
-MIT License
+MIT License — For educational and research purposes only.
 
-## About
-
-Built as a university cybersecurity project demonstrating ICS/SCADA protocol vulnerabilities and the critical need for IEC 62351 cryptographic authentication in smart grid deployments.
+> ⚠️ **Warning**: This tool is for authorized cybersecurity research and education only. Unauthorized use against real power grid infrastructure is illegal and dangerous.
