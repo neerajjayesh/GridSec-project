@@ -1,1 +1,0 @@
-# GridSec Sim — core package

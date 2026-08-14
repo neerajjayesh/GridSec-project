@@ -12,15 +12,25 @@ venv/
 env/
 .venv/
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
+
+# Shell & tool configs
+.bash*
+.cache/
+.config/
+.local/
+.gitconfig
+.motd_shown
+.profile
+.sudo_as_admin_successful
+install_gh.sh
+github_push.sh
 
 # Logs & runtime
 *.log
@@ -31,3 +41,7 @@ Thumbs.db
 # GridSec exports
 gridsec_*.json
 gridsec_*.csv
+
+# Legacy subdirectories
+GridSecSim/
+Gridsec-upgraded/
