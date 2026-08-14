@@ -1,0 +1,194 @@
+{
+  "nodes": [
+    {
+      "node_type": "CT_VT",
+      "label": "CT-1",
+      "ip": "127.0.0.1",
+      "port": 0,
+      "proto": "UDP",
+      "level": 0,
+      "subtype": "CT/VT",
+      "x": -217.57112499999988,
+      "y": 468.2505000000001,
+      "_id": 138087636739536
+    },
+    {
+      "node_type": "BREAKER",
+      "label": "CB-1",
+      "ip": "127.0.0.1",
+      "port": 0,
+      "proto": "UDP",
+      "level": 0,
+      "subtype": "breaker",
+      "state": "closed",
+      "x": 157.8291250000001,
+      "y": 480.94649999999996,
+      "_id": 138087430915248
+    },
+    {
+      "node_type": "PMU",
+      "label": "PMU-2",
+      "ip": "127.0.0.1",
+      "port": 4712,
+      "proto": "UDP",
+      "level": 1,
+      "reporting_rate": 30,
+      "idcode": 1,
+      "running": false,
+      "active": false,
+      "x": -172.41037499999993,
+      "y": 284.725125,
+      "_id": 138087636732176
+    },
+    {
+      "node_type": "PROTECTION_IED",
+      "label": "IED-1",
+      "ip": "127.0.0.1",
+      "port": 102,
+      "proto": "UDP",
+      "level": 1,
+      "subtype": "protection_ied",
+      "x": 78.01625000000001,
+      "y": 292.58450000000005,
+      "_id": 138087636732016
+    },
+    {
+      "node_type": "BCU",
+      "label": "BCU-1",
+      "ip": "127.0.0.1",
+      "port": 102,
+      "proto": "UDP",
+      "level": 1,
+      "subtype": "bcu",
+      "x": 352.43499999999995,
+      "y": 308.18999999999994,
+      "_id": 138087430920048
+    },
+    {
+      "node_type": "PDC",
+      "label": "PDC-2",
+      "ip": "127.0.0.1",
+      "port": 4713,
+      "proto": "UDP",
+      "level": 2,
+      "buffer_timeout": 100,
+      "pmu_input_count": 0,
+      "x": -226.16999999999985,
+      "y": 103.9675,
+      "_id": 138087636732816
+    },
+    {
+      "node_type": "SWITCH",
+      "label": "SW-1",
+      "ip": "127.0.0.1",
+      "port": 0,
+      "proto": "UDP",
+      "level": 2,
+      "port_count": 8,
+      "x": 35.035000000000025,
+      "y": 110.83499999999998,
+      "_id": 138087430921008
+    },
+    {
+      "node_type": "STATION_HMI",
+      "label": "HMI-1",
+      "ip": "127.0.0.1",
+      "port": 502,
+      "proto": "UDP",
+      "level": 2,
+      "status": "Active",
+      "x": 243.13037499999996,
+      "y": 16.540750000000017,
+      "_id": 138087636731856
+    },
+    {
+      "node_type": "ENGINEERING_WS",
+      "label": "EW-1",
+      "ip": "127.0.0.1",
+      "port": 0,
+      "proto": "UDP",
+      "level": 2,
+      "high_risk": true,
+      "x": 467.49249999999995,
+      "y": 109.51249999999999,
+      "_id": 138087430914928
+    },
+    {
+      "node_type": "GATEWAY_RTU",
+      "label": "RTU-1",
+      "ip": "127.0.0.1",
+      "port": 20000,
+      "proto": "UDP",
+      "level": 2,
+      "protocol": "DNP3",
+      "x": 663.2224999999999,
+      "y": 101.775875,
+      "_id": 138087430920208
+    },
+    {
+      "node_type": "STATE_PDC",
+      "label": "SPDC-1",
+      "ip": "127.0.0.1",
+      "port": 4714,
+      "proto": "UDP",
+      "level": 3,
+      "connected_pdc_count": 0,
+      "regional_uplink_connected": false,
+      "x": 288.756625,
+      "y": -150.0,
+      "_id": 138087430919088
+    }
+  ],
+  "links": [
+    {
+      "src_id": 138087636739536,
+      "dst_id": 138087636732176,
+      "protocol": "GOOSE"
+    },
+    {
+      "src_id": 138087430915248,
+      "dst_id": 138087636732016,
+      "protocol": "GOOSE"
+    },
+    {
+      "src_id": 138087636732176,
+      "dst_id": 138087430921008,
+      "protocol": "C37.118"
+    },
+    {
+      "src_id": 138087636732016,
+      "dst_id": 138087430921008,
+      "protocol": "GOOSE"
+    },
+    {
+      "src_id": 138087430920048,
+      "dst_id": 138087430921008,
+      "protocol": "GOOSE"
+    },
+    {
+      "src_id": 138087430921008,
+      "dst_id": 138087636732816,
+      "protocol": "C37.118"
+    },
+    {
+      "src_id": 138087430921008,
+      "dst_id": 138087636731856,
+      "protocol": "C37.118"
+    },
+    {
+      "src_id": 138087430921008,
+      "dst_id": 138087430914928,
+      "protocol": "C37.118"
+    },
+    {
+      "src_id": 138087636732816,
+      "dst_id": 138087430919088,
+      "protocol": "C37.118"
+    },
+    {
+      "src_id": 138087430920208,
+      "dst_id": 138087430919088,
+      "protocol": "DNP3"
+    }
+  ]
+}
