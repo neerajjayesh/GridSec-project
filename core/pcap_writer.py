@@ -222,6 +222,9 @@ class PcapWriter:
 
     def _open(self) -> None:
         try:
+            parent = os.path.dirname(os.path.abspath(self._path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             if self._use_fifo:
                 # Create named pipe if it doesn't exist
                 if os.path.exists(self._path):

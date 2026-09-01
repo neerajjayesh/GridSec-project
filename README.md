@@ -77,6 +77,14 @@ python main.py
 8. Watch the **waveform viewer** — green = clean signal, red = tampered signal
 9. Read the **packet log** — attacked packets shown in red
 
+### Guided scenarios and safer runs
+
+- Use **File → Load MitM Demo** (or `python main.py --demo`) to load a ready-to-run PMU → MitM → PDC topology.
+- Use the **Scenarios** menu to apply a clean baseline, noise, GPS spoofing, false-data, packet-loss, or replay setup in one click.
+- Use **Validate Topology** before running. It blocks missing PMU/PDC setups and highlights unattached Threat Agents, missing C37.118 links, and single-stream port conflicts.
+- Attack schedules can delay an enabled attack until a selected packet frame and optionally stop it after a selected duration.
+- Saved topologies use the portable **v2** schema, with stable node IDs and retained MitM attachments. Legacy topology files remain supported.
+
 ---
 
 ## openPDC Integration

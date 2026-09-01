@@ -98,7 +98,7 @@ def main() -> int:
 
     # Import Qt after dependency check
     from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import Qt, QTimer
     from PyQt6.QtGui import QFont
 
     # Enable High DPI scaling (PyQt6 handles this automatically)
@@ -135,6 +135,19 @@ def main() -> int:
     from gui.main_window import MainWindow
     window = MainWindow()
     window.show()
+
+    # WSLg can start a Wayland window behind the current desktop window.  Ask
+    # the compositor to present it after the event loop begins as well.
+    def _present_window() -> None:
+        window.raise_()
+        window.activateWindow()
+
+    QTimer.singleShot(150, _present_window)
+
+    # Useful for guided demos and quick verification without changing the
+    # normal empty-canvas startup experience.
+    if "--demo" in sys.argv:
+        QTimer.singleShot(0, window._load_mitm_demo)
 
     logger.info("GridSec Sim GUI launched ✔")
     return app.exec()

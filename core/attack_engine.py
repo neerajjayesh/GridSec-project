@@ -630,6 +630,10 @@ class AttackEngine:
             "modified_packets": 0,
             "dropped_packets":  0,
         }
+        # Optional packet-frame schedule.  A duration of 0 means remain active
+        # until the simulation stops.
+        self._schedule_start_frame = 0
+        self._schedule_duration_frames = 0
 
     # ── Attack selection ──────────────────────────────────────────────────────
 
@@ -680,6 +684,26 @@ class AttackEngine:
     def get_params(self) -> dict:
         return self.active_attack.get_params()
 
+    def set_schedule(self, start_frame: int = 0, duration_frames: int = 0) -> None:
+        """Arm the active attack for a packet-frame window."""
+        self._schedule_start_frame = max(0, int(start_frame))
+        self._schedule_duration_frames = max(0, int(duration_frames))
+
+    @property
+    def schedule(self) -> dict:
+        return {
+            "start_frame": self._schedule_start_frame,
+            "duration_frames": self._schedule_duration_frames,
+        }
+
+    @property
+    def is_scheduled_active(self) -> bool:
+        frame = self.stats["total_packets"]
+        if frame < self._schedule_start_frame:
+            return False
+        return (self._schedule_duration_frames == 0 or
+                frame < self._schedule_start_frame + self._schedule_duration_frames)
+
     def reset_stats(self) -> None:
         self.stats = {"total_packets": 0, "modified_packets": 0, "dropped_packets": 0}
 
@@ -703,7 +727,11 @@ class AttackEngine:
         """
         self.stats["total_packets"] += 1
 
-        result = self.active_attack.apply(frame_dict)
+        if self.is_enabled and not self.is_scheduled_active:
+            result = AttackResult(frame_dict, False, False, self.active_type,
+                                  "Attack schedule inactive")
+        else:
+            result = self.active_attack.apply(frame_dict)
 
         if result.was_dropped:
             self.stats["dropped_packets"] += 1

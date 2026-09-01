@@ -12,9 +12,12 @@ Provides a tabbed UI for configuring and monitoring all integrations:
 """
 
 import os
+import shutil
+import shlex
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
@@ -131,7 +134,7 @@ class CaptureTab(QWidget):
         # File path
         path_row = QHBoxLayout()
         path_row.addWidget(_lbl("Output file:"))
-        self._path_edit = QLineEdit("/tmp/gridsec_capture.pcap")
+        self._path_edit = QLineEdit(self._default_capture_path())
         self._path_edit.setStyleSheet(_INPUT)
         path_row.addWidget(self._path_edit, 1)
         browse = QPushButton("Browse")
@@ -144,13 +147,16 @@ class CaptureTab(QWidget):
         self._fifo_cb = QCheckBox("Use named FIFO pipe (Wireshark connects live)")
         self._fifo_cb.setStyleSheet("color: #94a3b8;")
         self._fifo_cb.toggled.connect(self._on_fifo_toggled)
+        if os.name == "nt":
+            self._fifo_cb.setToolTip("Live FIFO capture requires GridSec Sim to run inside Linux/WSL.")
+            self._fifo_cb.setEnabled(False)
         layout.addWidget(self._fifo_cb)
 
         # Wireshark command
         self._ws_cmd = QLineEdit()
         self._ws_cmd.setReadOnly(True)
         self._ws_cmd.setStyleSheet(_INPUT + "color: #34d399;")
-        self._ws_cmd.setText("wireshark /tmp/gridsec_capture.pcap")
+        self._ws_cmd.setText(self._wireshark_command(self._path_edit.text()))
         ws_row = QHBoxLayout()
         ws_row.addWidget(_lbl("Wireshark cmd:"))
         ws_row.addWidget(self._ws_cmd, 1)
@@ -222,6 +228,25 @@ class CaptureTab(QWidget):
             self._ws_cmd.setText(f"wireshark {path}")
             self._zeek_cmd.setText(f"zeek -r {path} local")
 
+    @staticmethod
+    def _default_capture_path() -> str:
+        if os.name == "nt":
+            return str(Path.home() / "Documents" / "GridSecSim" / "gridsec_capture.pcap")
+        return "/tmp/gridsec_capture.pcap"
+
+    @staticmethod
+    def _windows_to_wsl_path(path: str) -> str:
+        """Convert C:\\... into /mnt/c/... for a WSL-launched Wireshark."""
+        drive, tail = os.path.splitdrive(os.path.abspath(path))
+        if drive:
+            return f"/mnt/{drive[0].lower()}{tail.replace(os.sep, '/')}"
+        return path
+
+    def _wireshark_command(self, path: str) -> str:
+        if os.name == "nt" and not (shutil.which("wireshark") or shutil.which("wireshark.exe")):
+            return f"wsl wireshark {self._windows_to_wsl_path(path)}"
+        return f"wireshark {path}"
+
     def _browse(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Save pcap As", self._path_edit.text(),
@@ -229,6 +254,7 @@ class CaptureTab(QWidget):
         )
         if path:
             self._path_edit.setText(path)
+            self._ws_cmd.setText(self._wireshark_command(path))
 
     def _start_capture(self):
         path     = self._path_edit.text().strip()
@@ -255,14 +281,23 @@ class CaptureTab(QWidget):
         path = self._path_edit.text().strip()
         use_fifo = self._fifo_cb.isChecked()
         try:
-            if use_fifo:
-                subprocess.Popen(["wireshark", "-k", "-i", path])
+            native_wireshark = shutil.which("wireshark") or shutil.which("wireshark.exe")
+            if native_wireshark:
+                cmd = [native_wireshark, "-k", "-i", path] if use_fifo else [native_wireshark, path]
+                subprocess.Popen(cmd)
+            elif os.name == "nt" and shutil.which("wsl.exe"):
+                wsl_path = self._windows_to_wsl_path(path)
+                linux_cmd = f"exec wireshark {'-k -i ' if use_fifo else ''}{shlex.quote(wsl_path)}"
+                subprocess.Popen(["wsl.exe", "-e", "bash", "-lc", linux_cmd])
             else:
-                subprocess.Popen(["wireshark", path])
+                raise FileNotFoundError("Wireshark executable was not found")
+            self._status_lbl.setText("● Wireshark launch requested")
+            self._status_lbl.setStyleSheet(_STATUS_ON)
         except FileNotFoundError:
             QMessageBox.warning(self, "Wireshark",
                 "Wireshark not found.\n"
-                "Install with: sudo apt install wireshark\n\n"
+                "Install with: sudo apt install wireshark (WSL/Linux)\n"
+                "or install the Windows Wireshark desktop application.\n\n"
                 f"Or copy command:\n{self._ws_cmd.text()}")
 
     def update_stats(self):

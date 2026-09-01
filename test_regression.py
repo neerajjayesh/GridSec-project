@@ -13,9 +13,11 @@ Runs in offscreen mode (no display required).
 """
 
 import math
+import json
 import os
 import sys
 import time
+from pathlib import Path
 
 # Force offscreen rendering
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -349,6 +351,14 @@ check(engine.stats["total_packets"] == 0, "reset_stats zeroes total_packets")
 check(engine.stats["modified_packets"] == 0, "reset_stats zeroes modified_packets")
 check(engine.stats["dropped_packets"] == 0, "reset_stats zeroes dropped_packets")
 
+# Scheduled attack window: wait for two frames, modify exactly two frames.
+engine.set_attack(AttackType.SCALE, {"scale_factor": 2.0})
+engine.set_schedule(start_frame=2, duration_frames=2)
+schedule_results = [engine.apply(make_frame(mag=100.0))[1] for _ in range(4)]
+check(schedule_results == [False, True, True, False],
+      "Scheduled attack runs only within its frame window")
+engine.set_schedule()
+
 # ============================================================================
 # PART 4: Save/Load Topology
 # ============================================================================
@@ -369,6 +379,7 @@ canvas3.add_link(nodes_before[2], nodes_before[3])  # PDC -> SPDC
 
 # Save
 topo = canvas3.save_topology()
+check(topo.get("version") == 2, "Saved topology uses portable v2 schema")
 check(len(topo["nodes"]) == 5, f"Save: {len(topo['nodes'])} nodes (expected 5)")
 check(len(topo["links"]) == 3, f"Save: {len(topo['links'])} links (expected 3)")
 
@@ -376,6 +387,23 @@ check(len(topo["links"]) == 3, f"Save: {len(topo['links'])} links (expected 3)")
 saved_types = [n["node_type"] for n in topo["nodes"]]
 check(NodeType.CT_VT in saved_types, "Saved topology includes CT_VT")
 check(NodeType.STATE_PDC in saved_types, "Saved topology includes STATE_PDC")
+
+# 4.1 Bundled MitM demo and intercepted-link persistence
+demo_path = Path(__file__).with_name("mitm-demo-topology.json")
+with demo_path.open(encoding="utf-8") as f:
+    demo_data = json.load(f)
+demo_canvas = TopologyCanvas()
+demo_canvas.load_topology(demo_data)
+demo_agents = demo_canvas.get_threat_agents()
+check(len(demo_agents) == 1, "MitM demo loads one Threat Agent")
+check(demo_agents[0]._config.get("active") is True, "MitM demo attacker is active")
+check(len(demo_canvas.get_intercepted_links()) == 1, "MitM demo link is intercepted")
+
+# A topology saved by the app must retain the attachment when loaded again.
+round_trip = TopologyCanvas()
+round_trip.load_topology(demo_canvas.save_topology())
+check(len(round_trip.get_intercepted_links()) == 1,
+      "Save/load retains intercepted-link state")
 
 # ============================================================================
 # PART 4b: Regional Uplink Toggle

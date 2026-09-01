@@ -499,6 +499,34 @@ class AttackPanel(QWidget):
 
         layout.addWidget(_sep())
 
+        # ── Schedule ────────────────────────────────────────────────────────
+        layout.addWidget(_title("Schedule"))
+        schedule = QGroupBox()
+        schedule.setStyleSheet("QGroupBox { border: none; padding: 0; margin: 0; }")
+        schedule_form = QFormLayout(schedule)
+        schedule_form.setContentsMargins(0, 0, 0, 0)
+        schedule_form.setSpacing(6)
+        self._schedule_enabled = QCheckBox("Schedule attack by packet frame")
+        self._schedule_enabled.toggled.connect(self._apply_schedule)
+        schedule_form.addRow("", self._schedule_enabled)
+        self._schedule_start = QSpinBox()
+        self._schedule_start.setRange(0, 1_000_000)
+        self._schedule_start.setSuffix(" frames")
+        self._schedule_start.valueChanged.connect(self._apply_schedule)
+        schedule_form.addRow("Start after:", self._schedule_start)
+        self._schedule_duration = QSpinBox()
+        self._schedule_duration.setRange(0, 1_000_000)
+        self._schedule_duration.setSpecialValueText("Until stopped")
+        self._schedule_duration.setSuffix(" frames")
+        self._schedule_duration.valueChanged.connect(self._apply_schedule)
+        schedule_form.addRow("Duration:", self._schedule_duration)
+        self._schedule_status = QLabel("Runs immediately")
+        self._schedule_status.setStyleSheet("color: #64748b; font-size: 11px;")
+        schedule_form.addRow("", self._schedule_status)
+        layout.addWidget(schedule)
+
+        layout.addWidget(_sep())
+
         # ── Scope ─────────────────────────────────────────────────────────────
         layout.addWidget(_title("Apply To"))
         scope_grp = QGroupBox()
@@ -618,6 +646,18 @@ class AttackPanel(QWidget):
             params = page.get_params()
             eng_attack = self._engine.get_attack(at)
             eng_attack.set_params(params)
+        self._apply_schedule()
+
+    def _apply_schedule(self, *_args) -> None:
+        if not hasattr(self, "_schedule_enabled"):
+            return
+        if self._schedule_enabled.isChecked():
+            self._engine.set_schedule(self._schedule_start.value(), self._schedule_duration.value())
+            end = "until stopped" if self._schedule_duration.value() == 0 else f"for {self._schedule_duration.value()} frames"
+            self._schedule_status.setText(f"Armed after frame {self._schedule_start.value()}, {end}")
+        else:
+            self._engine.set_schedule()
+            self._schedule_status.setText("Runs immediately")
 
     def _reset_stats(self) -> None:
         self._engine.reset_stats()
@@ -631,6 +671,9 @@ class AttackPanel(QWidget):
         self._stat_total.setText(f"{stats['total_packets']:,}")
         self._stat_modified.setText(f"{stats['modified_packets']:,}")
         self._stat_dropped.setText(f"{stats['dropped_packets']:,}")
+        if self._schedule_enabled.isChecked() and self._engine.is_enabled:
+            state = "Active" if self._engine.is_scheduled_active else "Waiting"
+            self._schedule_status.setText(f"{state} at frame {stats['total_packets']:,}")
 
         # Update replay page status if active
         at = self._get_active_type()
@@ -665,3 +708,8 @@ class AttackPanel(QWidget):
         idx   = ATTACK_ORDER.index(at) if at in ATTACK_ORDER else 0
         self._type_combo.setCurrentIndex(idx)
         self._enable_btn.setChecked(self._engine.is_enabled)
+        schedule = self._engine.schedule
+        scheduled = bool(schedule["start_frame"] or schedule["duration_frames"])
+        self._schedule_enabled.setChecked(scheduled)
+        self._schedule_start.setValue(schedule["start_frame"])
+        self._schedule_duration.setValue(schedule["duration_frames"])

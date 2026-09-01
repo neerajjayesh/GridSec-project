@@ -27,6 +27,7 @@ Level lanes (bottom to top):
 
 import json
 import math
+import uuid
 from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt6.QtCore import (
@@ -375,6 +376,9 @@ class TopologyCanvas(QGraphicsView):
         label = f"{NODE_SHORT_NAMES.get(node_type, node_type)}-{count}"
 
         node = create_node(node_type, label=label)
+        # Persist a stable identifier.  Python's id() is only valid for the
+        # current process and made topology files needlessly brittle.
+        node._topology_id = str(uuid.uuid4())
 
         if scene_pos is None:
             # Place in center of view with offset
@@ -441,6 +445,12 @@ class TopologyCanvas(QGraphicsView):
 
     def _delete_item(self, item) -> None:
         if isinstance(item, BaseNode):
+            # An attacker is owned by the canvas but also registered with the
+            # intercepted link.  Clear that registration before removing the
+            # node so a deleted attacker cannot leave a link marked red.
+            if item.node_type == NodeType.THREAT_AGENT:
+                for link in self._links:
+                    link.remove_threat_agent(item)
             # Remove all connected links first
             for link in list(item.get_links()):
                 self._delete_link(link)
@@ -475,28 +485,35 @@ class TopologyCanvas(QGraphicsView):
     # ── Save / Load ──────────────────────────────────────────────────────────
 
     def save_topology(self) -> dict:
-        """Serialize the current topology to a JSON-serializable dict."""
+        """Serialize the current topology using the portable v2 schema."""
         nodes_data = []
         for node in self._nodes:
             cfg = node.get_config()
-            cfg["_id"] = id(node)
+            cfg["id"] = getattr(node, "_topology_id", str(uuid.uuid4()))
             nodes_data.append(cfg)
 
         links_data = []
         for link in self._links:
             links_data.append({
-                "src_id":   id(link.src_node),
-                "dst_id":   id(link.dst_node),
+                "src_id":   getattr(link.src_node, "_topology_id", str(id(link.src_node))),
+                "dst_id":   getattr(link.dst_node, "_topology_id", str(id(link.dst_node))),
                 "protocol": link.protocol,
+                # Persist the visual and functional MitM relationship.  The
+                # old format only stored the endpoints, so loaded topologies
+                # silently lost their intercepted-link state.
+                "threat_agent_ids": [
+                    getattr(agent, "_topology_id", str(id(agent)))
+                    for agent in link._threat_agents
+                ],
             })
 
-        return {"nodes": nodes_data, "links": links_data}
+        return {"format": "GridSecSim", "version": 2, "nodes": nodes_data, "links": links_data}
 
     def load_topology(self, data: dict) -> None:
         """Restore a topology from a previously saved dict."""
         self.clear_canvas()
 
-        id_map: Dict[int, BaseNode] = {}
+        id_map: Dict[Any, BaseNode] = {}
 
         for nd in data.get("nodes", []):
             node_type = nd.get("node_type", NodeType.PMU)
@@ -504,13 +521,30 @@ class TopologyCanvas(QGraphicsView):
             node      = self.add_node(node_type, QPointF(nd.get("x", 0), nd.get("y", 0)))
             node.set_config(nd)
             node._label_item.setPlainText(nd.get("label", label))
-            id_map[nd["_id"]] = node
+            topology_id = nd.get("id", nd.get("_id", str(uuid.uuid4())))
+            node._topology_id = str(topology_id)
+            # Accept the legacy runtime-ID format as well as v2 IDs.
+            id_map[topology_id] = node
+            id_map[str(topology_id)] = node
 
+        loaded_links = []
         for ld in data.get("links", []):
-            src = id_map.get(ld["src_id"])
-            dst = id_map.get(ld["dst_id"])
+            src_key, dst_key = ld.get("src_id"), ld.get("dst_id")
+            src = id_map.get(src_key) or id_map.get(str(src_key))
+            dst = id_map.get(dst_key) or id_map.get(str(dst_key))
             if src and dst:
-                self.add_link(src, dst, ld.get("protocol", "C37.118"))
+                link = self.add_link(src, dst, ld.get("protocol", "C37.118"))
+                loaded_links.append((link, ld))
+
+        # Restore MitM attachments after every link exists.  This remains
+        # backwards compatible with legacy files: no attachment list simply
+        # means the topology loads as it did before.
+        for link, ld in loaded_links:
+            for agent_id in ld.get("threat_agent_ids", []):
+                agent = id_map.get(agent_id) or id_map.get(str(agent_id))
+                if isinstance(agent, ThreatAgentNode):
+                    link.add_threat_agent(agent)
+                    agent._config["intercepted_link"] = id(link)
 
     # ── Query ────────────────────────────────────────────────────────────────
 

@@ -111,6 +111,9 @@ class WaveformPlot(QWidget):
                                           label="Clean", zorder=3)
         self._line_atk,  = self._ax.plot([], [], color="#ef4444", linewidth=1.5,
                                           linestyle="--", label="Attacked", zorder=4)
+        self._ax.legend(loc="upper right", fontsize=7, framealpha=0.3,
+                        facecolor="#1e1e2e", edgecolor="#3d3d5c",
+                        labelcolor=["#10b981", "#ef4444"])
 
         self._canvas = FigureCanvas(self._fig)
         self._canvas.setStyleSheet("background: #13131f;")
@@ -131,9 +134,6 @@ class WaveformPlot(QWidget):
         ax.spines["top"].set_color("#2d2d44")
         ax.spines["left"].set_color("#2d2d44")
         ax.spines["right"].set_color("#2d2d44")
-        ax.legend(loc="upper right", fontsize=7, framealpha=0.3,
-                  facecolor="#1e1e2e", edgecolor="#3d3d5c",
-                  labelcolor=["#10b981", "#ef4444"])
 
     def push(self, t: float, orig: float, attacked: float) -> None:
         self._channel.push(t, orig, attacked)

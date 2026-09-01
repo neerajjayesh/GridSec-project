@@ -444,6 +444,9 @@ class MainWindow(QMainWindow):
         lbl = QLabel("Packet Log")
         lbl.setStyleSheet("color: #a78bfa; font-weight: 600; font-size: 12px;")
         hdr_layout.addWidget(lbl)
+        self._dash_label = QLabel("● Ready  |  0 packets")
+        self._dash_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        hdr_layout.addWidget(self._dash_label)
         hdr_layout.addStretch()
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedSize(50, 22)
@@ -479,12 +482,16 @@ class MainWindow(QMainWindow):
         act_new    = QAction("New Topology", self, shortcut="Ctrl+N")
         act_open   = QAction("Open Topology…", self, shortcut="Ctrl+O")
         act_save   = QAction("Save Topology…", self, shortcut="Ctrl+S")
+        act_demo   = QAction("Load MitM Demo", self)
+        act_validate = QAction("Validate Topology", self, shortcut="Ctrl+Shift+V")
         act_exit   = QAction("Exit", self, shortcut="Ctrl+Q")
         act_new.triggered.connect(self._new_topology)
         act_open.triggered.connect(self._open_topology)
         act_save.triggered.connect(self._save_topology)
+        act_demo.triggered.connect(self._load_mitm_demo)
+        act_validate.triggered.connect(self._show_topology_validation)
         act_exit.triggered.connect(self.close)
-        file_menu.addActions([act_new, act_open, act_save])
+        file_menu.addActions([act_new, act_open, act_save, act_demo, act_validate])
         file_menu.addSeparator()
         file_menu.addAction(act_exit)
 
@@ -496,6 +503,21 @@ class MainWindow(QMainWindow):
         self._act_stop.triggered.connect(self._stop_simulation)
         self._act_stop.setEnabled(False)
         sim_menu.addActions([self._act_run, self._act_stop])
+
+        scenario_menu = mb.addMenu("&Scenarios")
+        for name, attack_type, params in [
+            ("Clean Baseline", AttackType.NONE, {}),
+            ("Noisy Sensor", AttackType.NOISE, {"noise_std": 5.0}),
+            ("GPS Frequency Spoofing", AttackType.FREQUENCY_OVERRIDE, {"target_freq": 60.0}),
+            ("Voltage False Data", AttackType.MAGNITUDE_OVERRIDE, {"phasor_idx": 0, "value": 0.0}),
+            ("Packet Loss Drill", AttackType.DROP, {"drop_percent": 50.0}),
+            ("Replay Drill", AttackType.REPLAY, {"buffer_size": 90}),
+        ]:
+            action = QAction(name, self)
+            action.triggered.connect(
+                lambda checked=False, at=attack_type, p=params, n=name: self._load_quick_scenario(n, at, p)
+            )
+            scenario_menu.addAction(action)
 
         # Attacks menu
         atk_menu = mb.addMenu("&Attacks")
@@ -538,6 +560,12 @@ class MainWindow(QMainWindow):
         self._tb_run.triggered.connect(self._start_simulation)
         self._tb_stop.triggered.connect(self._stop_simulation)
         self._tb_stop.setEnabled(False)
+
+        # Keep the three most frequent file actions in immediate reach.
+        tb.addSeparator()
+        tb.addAction("Save", self._save_topology)
+        tb.addAction("Load Demo", self._load_mitm_demo)
+        tb.addAction("Validate", self._show_topology_validation)
 
         tb.addSeparator()
 
@@ -648,6 +676,15 @@ class MainWindow(QMainWindow):
             self._sb_atk.setText(f"Modified: 0")
             self._sb_atk.setObjectName("status_attack_off")
         self._sb_drop.setText(f"Dropped: {stats['dropped_packets']:,}")
+        if hasattr(self, "_dash_label"):
+            state = "Running" if self._sim_running else "Ready"
+            attack = self._engine.active_type.value if self._engine.is_enabled else "None"
+            color = "#10b981" if self._sim_running else "#64748b"
+            self._dash_label.setText(
+                f"● {state} | {stats['total_packets']:,} packets | "
+                f"{stats['modified_packets']:,} modified | {stats['dropped_packets']:,} dropped | Attack: {attack}"
+            )
+            self._dash_label.setStyleSheet(f"color: {color}; font-size: 11px;")
 
         # GOOSE / DNP3 / Modbus status dots
         goose_state = "ON" if (self._goose and self._goose.is_active) else "--"
@@ -668,6 +705,7 @@ class MainWindow(QMainWindow):
         # Properties panel → canvas
         self._props_panel.config_applied.connect(self._on_config_applied)
         self._props_panel.regional_uplink_toggled.connect(self._on_regional_uplink_toggled)
+        self._attack_panel.attack_changed.connect(self._on_attack_configured)
 
         # Relay (background threads → main thread)
         self._relay.pmu_frame_received.connect(self._on_pmu_frame)
@@ -679,6 +717,20 @@ class MainWindow(QMainWindow):
     def _start_simulation(self) -> None:
         if self._sim_running:
             return
+
+        errors, warnings = self._topology_validation_messages()
+        if errors:
+            QMessageBox.warning(self, "Topology Needs Attention", "\n".join(f"• {item}" for item in errors))
+            return
+        if warnings:
+            reply = QMessageBox.question(
+                self, "Topology Warnings",
+                "The simulation can still run, but review these warnings:\n\n" +
+                "\n".join(f"• {item}" for item in warnings) + "\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
 
         # Determine PMU and PDC settings from canvas
         pmu_nodes = self._canvas.get_pmu_nodes()
@@ -979,6 +1031,23 @@ class MainWindow(QMainWindow):
     def _on_config_applied(self, node: BaseNode, cfg: dict) -> None:
         self._log(f"[CFG] {node.label} configured: {cfg}", "system")
 
+    def _on_attack_configured(self, attack_type: str, params: dict) -> None:
+        """Store the selected setup on active attackers for topology review/export.
+
+        The current runtime has one PMU/proxy stream, so these assignments are
+        recorded per attacker now and become executable per-link policies when
+        the multi-stream proxy is introduced.
+        """
+        active_agents = [agent for agent in self._canvas.get_threat_agents()
+                         if agent._config.get("active")]
+        for agent in active_agents:
+            agent._config["attack_type"] = attack_type
+            agent._config["attack_params"] = dict(params)
+            agent._config["attack_schedule"] = self._engine.schedule
+        if active_agents:
+            self._log(f"[ATTACK] {attack_type} configured for " +
+                      ", ".join(agent.label for agent in active_agents), "system")
+
     def _on_regional_uplink_toggled(self, node: BaseNode, connected: bool) -> None:
         """Handle regional uplink toggle from Properties panel."""
         ts = time.strftime("%H:%M:%S")
@@ -1046,6 +1115,72 @@ class MainWindow(QMainWindow):
                 self._log(f"[FILE] Topology loaded from {path}", "system")
             except Exception as exc:
                 QMessageBox.critical(self, "Load Error", f"Failed to load topology:\n{exc}")
+
+    def _load_mitm_demo(self) -> None:
+        """Load the bundled PMU → MitM → PDC example topology."""
+        if self._sim_running:
+            QMessageBox.warning(self, "Simulation Running", "Stop the simulation before loading a topology.")
+            return
+        path = Path(__file__).resolve().parent.parent / "mitm-demo-topology.json"
+        try:
+            with open(path, encoding="utf-8") as f:
+                self._canvas.load_topology(json.load(f))
+            self._canvas.zoom_fit()
+            self._log("[FILE] MitM demo topology loaded", "system")
+        except Exception as exc:
+            QMessageBox.critical(self, "Demo Load Error", f"Could not load the bundled demo:\n{exc}")
+
+    def _load_quick_scenario(self, name: str, attack_type: AttackType, params: dict) -> None:
+        """Load the local demo and configure one guided training scenario."""
+        self._load_mitm_demo()
+        if attack_type == AttackType.NONE:
+            self._engine.disable()
+        else:
+            self._engine.set_attack(attack_type, params)
+            self._engine.enable()
+        self._attack_panel.sync_from_engine()
+        self._log(f"[SCENARIO] Loaded: {name}", "system")
+
+    def _topology_validation_messages(self) -> tuple[list[str], list[str]]:
+        """Return blocking errors and non-blocking warnings for the canvas."""
+        errors: list[str] = []
+        warnings: list[str] = []
+        pmus = self._canvas.get_pmu_nodes()
+        pdcs = self._canvas.get_pdc_nodes()
+        links = self._canvas.get_all_links()
+        if not pmus:
+            errors.append("Add at least one PMU before running a simulation.")
+        if not pdcs:
+            errors.append("Add at least one Local PDC before running a simulation.")
+        if pmus and pdcs:
+            pmu_pdc_link = any(
+                link.protocol == "C37.118" and
+                ((link.src_node in pmus and link.dst_node in pdcs) or
+                 (link.dst_node in pmus and link.src_node in pdcs))
+                for link in links
+            )
+            if not pmu_pdc_link:
+                warnings.append("No direct C37.118 PMU-to-PDC link was found; the runtime uses the first PMU and PDC.")
+        loose_agents = [a.label for a in self._canvas.get_threat_agents()
+                        if not any(a in link._threat_agents for link in links)]
+        if loose_agents:
+            warnings.append("Threat Agent not attached to a link: " + ", ".join(loose_agents))
+        pmu_ports = [node.port for node in pmus]
+        if len(pmu_ports) != len(set(pmu_ports)):
+            warnings.append("Multiple PMUs share a listen port; the current runtime simulates one active PMU stream.")
+        return errors, warnings
+
+    def _show_topology_validation(self) -> None:
+        errors, warnings = self._topology_validation_messages()
+        if not errors and not warnings:
+            QMessageBox.information(self, "Topology Validation", "✓ Topology is ready to run.")
+            return
+        message = []
+        if errors:
+            message.append("<b>Must fix</b><br>" + "<br>".join(f"• {item}" for item in errors))
+        if warnings:
+            message.append("<b>Warnings</b><br>" + "<br>".join(f"• {item}" for item in warnings))
+        QMessageBox.warning(self, "Topology Validation", "<br><br>".join(message))
 
     def _confirm_clear(self) -> None:
         reply = QMessageBox.question(

@@ -1,0 +1,52 @@
+{
+  "nodes": [
+    {
+      "node_type": "PMU",
+      "label": "PMU-Demo",
+      "ip": "127.0.0.1",
+      "port": 4712,
+      "proto": "UDP",
+      "level": 1,
+      "reporting_rate": 30,
+      "idcode": 1,
+      "running": false,
+      "active": false,
+      "x": -180,
+      "y": 300,
+      "_id": 1
+    },
+    {
+      "node_type": "PDC",
+      "label": "PDC-Demo",
+      "ip": "127.0.0.1",
+      "port": 4713,
+      "proto": "UDP",
+      "level": 2,
+      "buffer_timeout": 100,
+      "pmu_input_count": 1,
+      "x": 280,
+      "y": 100,
+      "_id": 2
+    },
+    {
+      "node_type": "THREAT_AGENT",
+      "label": "MitM-Demo",
+      "ip": "127.0.0.1",
+      "port": 0,
+      "proto": "UDP",
+      "level": -1,
+      "active": true,
+      "x": 50,
+      "y": 200,
+      "_id": 3
+    }
+  ],
+  "links": [
+    {
+      "src_id": 1,
+      "dst_id": 2,
+      "protocol": "C37.118",
+      "threat_agent_ids": [3]
+    }
+  ]
+}
