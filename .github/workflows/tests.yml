@@ -1,18 +1,47 @@
 name: Regression tests
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     env:
       QT_QPA_PLATFORM: offscreen
       MPLBACKEND: Agg
+      GRIDSEC_PYTHON: python
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -r requirements.txt
-      - run: python -m compileall -q core gui protocols main.py
-      - run: python test_regression.py
-      - run: python -m unittest discover -s tests -v
+      - name: Install Qt system libraries
+        # Offscreen Qt still links to the native EGL/OpenGL libraries.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libopengl0 libdbus-1-3 libfontconfig1 libxkbcommon0
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip check
+      - name: Verify headless Qt initialization
+        run: |
+          python - <<'PY'
+          from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
+          from PyQt6.QtWidgets import QApplication
+
+          app = QApplication([])
+          print(f"PyQt {PYQT_VERSION_STR}; Qt {QT_VERSION_STR}; platform {app.platformName()}")
+          assert app.platformName() == "offscreen"
+          app.quit()
+          PY
+      - name: Run full regression suite
+        run: bash test_all.sh

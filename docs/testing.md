@@ -30,6 +30,24 @@ These are observed checks, not a claim that every implementation path is correct
 
 ## Run the existing regression suite
 
+### GitHub Actions
+
+The `Regression tests` workflow runs on pushes and pull requests using Ubuntu
+24.04 and Python 3.12. It installs the native Qt libraries before the Python
+dependencies, checks dependency compatibility, and creates an offscreen
+`QApplication` before running the full suite with `bash test_all.sh`.
+
+`QT_QPA_PLATFORM=offscreen` avoids needing a desktop display, but does not remove
+Qt's native library dependencies. In particular, `libEGL.so.1` is provided by the
+Ubuntu `libegl1` package. If the Qt initialization step fails, inspect that step's
+error before interpreting the result as a failed application test.
+
+The full suite includes compilation, eight protocol/core module self-checks,
+the standalone regression script, and the tests under `tests/`. CI explicitly
+sets `GRIDSEC_PYTHON=python` to use the interpreter provided by `setup-python`.
+
+### Direct local invocation
+
 Windows:
 
 ```powershell
@@ -86,16 +104,18 @@ The PCAP example requires a new filename and opens no network sockets. The API e
 
 A manual GUI run should start with Clean Baseline, then a controlled magnitude/frequency change, then a reset and finite schedule. For packet loss/delay, use receiver-side timing/counts rather than expecting the waveform alone to show delivery behavior.
 
-## Historical shell scripts
+## Shell helpers
 
-| File | Current caveat |
+| File | Current behavior |
 |---|---|
-| `test_all.sh` | Assumes `~/GridSecSim` and `venv/`; limited module checks |
-| `test_launch.sh` | Copies files from a fixed workstation path before launching a check |
-| `deploy_and_test.sh`, `deploy_integration.sh` | Copy/overwrite files between fixed Windows/WSL locations |
-| `patch_mgr.py` | Rewrites manager source; not a test or supported migration |
+| `test_all.sh` | Tests the current checkout; runs compilation, eight module self-checks, regression checks, and `tests/` |
+| `test_launch.sh` | Runs offscreen GUI workflow tests from the current checkout |
+| `deploy_and_test.sh`, `deploy_integration.sh` | Compatibility entry points for tests; do not copy application source |
+| `patch_mgr.py` | Retired utility; prints a notice without changing source |
 
-Use the direct Python commands above for portable verification. Do not run source-copying scripts just to obtain a test result.
+The shell helpers locate a working Python/Qt environment. Set `GRIDSEC_PYTHON`
+to choose one explicitly. The interpreter may live elsewhere, but application
+source is always loaded from the current checkout.
 
 ## Documentation artifact checks
 
