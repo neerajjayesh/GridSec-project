@@ -1,0 +1,103 @@
+\chapter{Developer guide}\label{chapter-13}
+\Needspace{10\baselineskip}
+\section*{Development environment}
+\pdfbookmark[1]{Development environment}{chapter-13-s1}
+Create a dedicated environment using \hyperref[chapter-2]{Getting started}, install \code{\seqsplit{requirements.txt}}, then run \code{\seqsplit{test\_regression.py}}. The project is a source-tree application rather than an installed package: \code{\seqsplit{main.py}} inserts its directory into \code{\seqsplit{sys.path}}. There is no \code{\seqsplit{pyproject.toml}}, package build configuration, linter configuration, or dependency lockfile.
+
+Run module self-checks with \code{\seqsplit{python}\ \seqsplit{-m}\ \seqsplit{protocols.c37118}} and similar module forms from the root to preserve import resolution. Existing shell deployment/test helpers contain fixed workstation paths; inspect them instead of assuming portability.
+
+\Needspace{10\baselineskip}
+\section*{Source map}
+\pdfbookmark[1]{Source map}{chapter-13-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Files & \color{white}\bfseries Responsibility \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Files & \color{white}\bfseries Responsibility \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{main.py}} & Application bootstrap and process-level logging/error handling \\
+\code{\seqsplit{core/pmu\_simulator.py}}, \code{\seqsplit{core/pdc\_proxy.py}} & Primary UDP producer and forwarding pipeline; optional core TCP proxy \\
+\rowcolor{pale}
+\code{\seqsplit{core/attack\_engine.py}}, \code{\seqsplit{core/traffic\_filter.py}} & Transformation contract, scheduling, and packet eligibility \\
+\code{\seqsplit{core/packet\_parser.py}} & Protocol wrapper and global codec \\
+\rowcolor{pale}
+\code{\seqsplit{core/*\_simulator.py}} & Auxiliary GOOSE, DNP3, and Modbus traffic \\
+\code{\seqsplit{core/integration\_manager.py}} & Incident model, exports, Syslog/CEF, integration lifecycle \\
+\rowcolor{pale}
+\code{\seqsplit{core/rest\_api.py}}, \code{\seqsplit{core/pcap\_writer.py}} & HTTP interface and synthesized capture writing \\
+\code{\seqsplit{protocols/}} & Protocol-specific encoding/decoding helpers \\
+\rowcolor{pale}
+\code{\seqsplit{gui/main\_window.py}} & Component wiring, menus, scenarios, runtime lifecycle \\
+\code{\seqsplit{gui/canvas.py}}, \code{\seqsplit{gui/node\_types.py}} & Diagram interaction, persistence, node/link graphics \\
+\rowcolor{pale}
+\code{\seqsplit{gui/properties\_panel.py}}, \code{\seqsplit{gui/attack\_panel.py}} & Property and attack forms \\
+\code{\seqsplit{gui/integration\_panel.py}} & Capture, syslog, REST, export and integration help tabs \\
+\rowcolor{pale}
+\code{\seqsplit{gui/waveform\_viewer.py}}, \code{\seqsplit{gui/styles.qss}} & Matplotlib plots and Qt theme \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Core usage}
+\pdfbookmark[1]{Core usage}{chapter-13-s3}
+Use \code{\seqsplit{AttackEngine.set\_attack()}} with an \code{\seqsplit{AttackType}} enum and documented parameter dictionary. Use \code{\seqsplit{set\_schedule()}} separately from attack parameters. Keep codec channel counts aligned across generation, parse, and rebuild; explicitly set the parser codec for the current single-process implementation.
+
+The \hyperref[reference-files]{offline example} demonstrates that contract with a known digital-word sentinel and validates the rebuilt result. The \hyperref[reference-files]{API example} demonstrates manager lifecycle and a synthetic record without starting auxiliary network services.
+
+\code{\seqsplit{PacketRecord}} does not hold outbound wire bytes. A capture integration must deliberately choose original or rebuilt bytes and pass them to \code{\seqsplit{record\_packet()}}. Do not infer modified wire bytes from a modified dict's inherited \code{\seqsplit{raw}} value.
+
+\Needspace{10\baselineskip}
+\section*{Add an attack module}
+\pdfbookmark[1]{Add an attack module}{chapter-13-s4}
+\begin{enumerate}
+\item Add an \code{\seqsplit{AttackType}} value and \code{\seqsplit{BaseAttack}} subclass.
+\item Implement \code{\seqsplit{get\_params()}}, \code{\seqsplit{set\_params()}}, \code{\seqsplit{reset()}} when stateful, and \code{\seqsplit{\_apply\_attack()}} returning \code{\seqsplit{AttackResult}}.
+\item Register the class in \code{\seqsplit{ATTACK\_CLASSES}}.
+\item Add an explicit form/order entry in \code{\seqsplit{gui/attack\_panel.py}} and verify parameter synchronization.
+\item Add meaningful checks for the transformation, no-op/drop behavior, reset, and any scheduling interaction.
+\item Update \hyperref[chapter-6]{Attacks}, relevant API/example metadata, and the changelog. Review export classification mappings without inventing a standards claim.
+\end{enumerate}
+
+Prefer copying nested measurement arrays before modification. Validate numeric inputs and state transitions explicitly. Existing setters are not a uniform validation model to copy unquestioningly.
+
+\Needspace{10\baselineskip}
+\section*{Add a node type}
+\pdfbookmark[1]{Add a node type}{chapter-13-s5}
+Register type/class, names, icons, colors, default ports, and level metadata in \code{\seqsplit{node\_types.py}}. Add palette placement in \code{\seqsplit{main\_window.py}}, configuration fields in \code{\seqsplit{properties\_panel.py}}, and link defaults where relevant in \code{\seqsplit{canvas.py}}. Verify save/load with stable IDs and attachments.
+
+A visual node does not become an executable device simply by registering it. Runtime construction, address mapping, callbacks, stop behavior, and protocol tests must be added separately if live behavior is intended.
+
+\Needspace{10\baselineskip}
+\section*{Add or extend a protocol}
+\pdfbookmark[1]{Add or extend a protocol}{chapter-13-s6}
+Keep codecs independent of Qt. Define the supported wire subset, frame boundaries, units, error behavior, and representative valid/invalid vectors. Add a worker lifecycle appropriate to the transport and route callbacks through the relay for UI updates.
+
+Decide whether the protocol observes original or modified measurements and whether it participates in attack execution. Connect nonempty raw bytes deliberately if capture is required. Verify with an independent decoder/receiver before claiming interoperability.
+
+\Needspace{10\baselineskip}
+\section*{Extend integrations/API}
+\pdfbookmark[1]{Extend integrations/API}{chapter-13-s7}
+Use manager \code{\seqsplit{configure\_*()}}, \code{\seqsplit{start()}}, and \code{\seqsplit{stop()}} as the existing core lifecycle. Add missing GUI wrappers as ordinary source changes with targeted validation; \code{\seqsplit{patch\_mgr.py}} rewrites source and is not a supported migration.
+
+API callbacks execute outside the Qt thread. Marshal UI mutations through signals, validate request bodies, and return actual success. Before adding concurrent clients/streams, address process-global API and codec state, serial SSE handling, shared engine mutation, and shutdown ownership.
+
+\Needspace{10\baselineskip}
+\section*{Engineering decisions for future scaling}
+\pdfbookmark[1]{Engineering decisions for future scaling}{chapter-13-s8}
+The current diagram/runtime separation simplifies teaching but limits simulation fidelity. A multi-stream design should explicitly map node/link IDs to independent runtime contexts containing codec, filter, attack state, sockets, and capture policy. It should also define whether incident IDs, counters, and schedules are per stream or per session.
+
+Keep those boundaries explicit before adding more UI switches. Confirm lifecycle ownership and failure reporting before claiming larger-scale support.
+
+\Needspace{10\baselineskip}
+\section*{Documentation maintenance}
+\pdfbookmark[1]{Documentation maintenance}{chapter-13-s9}
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+When behavior changes, update the relevant guide/reference, machine-readable schemas/examples, limitations, and verification notes together. Re-run the relevant checks after code changes and record the resulting behavior. Do not claim test coverage from unchecked script banners.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/attack_engine.py}{engine} (\code{\seqsplit{core/attack\_engine.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/node_types.py}{nodes} (\code{\seqsplit{gui/node\_types.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/canvas.py}{canvas} (\code{\seqsplit{gui/canvas.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{manager} (\code{\seqsplit{core/integration\_manager.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/test_regression.py}{regression} (\code{\seqsplit{test\_regression.py}}).\par}
+\end{minipage}\par
+

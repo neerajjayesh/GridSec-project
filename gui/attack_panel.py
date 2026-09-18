@@ -17,7 +17,7 @@ GUI signals notify the main window when the attack configuration changes.
 
 from typing import Optional, Dict
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSignalBlocker
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
@@ -536,6 +536,8 @@ class AttackPanel(QWidget):
         self._scope_all  = QRadioButton("All Links")
         self._scope_sel  = QRadioButton("Selected Link")
         self._scope_all.setChecked(True)
+        self._scope_all.toggled.connect(lambda: self.attack_changed.emit(
+            self._engine.active_type.value, self._engine.get_params()))
         scope_layout.addWidget(self._scope_all)
         scope_layout.addWidget(self._scope_sel)
         layout.addWidget(scope_grp)
@@ -618,35 +620,49 @@ class AttackPanel(QWidget):
         if page and hasattr(page, "set_params"):
             eng_attack = self._engine.get_attack(at)
             page.set_params(eng_attack.get_params())
+        enabled = self._engine.is_enabled
+        if at != self._engine.active_type:
+            self._engine.set_attack(at)
+            if not enabled:
+                self._engine.disable()
+        self._set_enable_display(self._engine.is_enabled)
+        self.attack_changed.emit(at.value, self._engine.get_params())
 
     def _on_enable_toggled(self, checked: bool) -> None:
         at = self._get_active_type()
-        self._apply_params()   # sync params first
-
+        self._engine.set_params_for(at, self._get_current_params())
         if checked:
             self._engine.set_attack(at)
             self._engine.enable()
+        else:
+            self._engine.disable()
+        self._set_enable_display(self._engine.is_enabled)
+        self.attack_toggled.emit(self._engine.is_enabled)
+        self.attack_changed.emit(at.value, self._engine.get_params())
+
+    def _set_enable_display(self, checked):
+        blocker = QSignalBlocker(self._enable_btn)
+        self._enable_btn.setChecked(checked)
+        self._enable_btn.setEnabled(self._get_active_type() != AttackType.NONE)
+        if checked:
             self._enable_btn.setText("🛑  Disable Attack")
             self._enable_btn.setStyleSheet(
                 "background: #ef4444; color: white; border: none; border-radius: 6px;"
                 "font-weight: 700; font-size: 13px;"
             )
         else:
-            self._engine.disable()
             self._enable_btn.setText("⚡  Enable Attack")
             self._enable_btn.setStyleSheet("")   # revert to QSS
 
-        self.attack_toggled.emit(checked)
-        self.attack_changed.emit(at.value, self._get_current_params())
 
     def _apply_params(self) -> None:
         at   = self._get_active_type()
         page = self._pages.get(at)
         if page and hasattr(page, "get_params"):
             params = page.get_params()
-            eng_attack = self._engine.get_attack(at)
-            eng_attack.set_params(params)
+            self._engine.set_params_for(at, params)
         self._apply_schedule()
+        self.attack_changed.emit(at.value, self._engine.get_params())
 
     def _apply_schedule(self, *_args) -> None:
         if not hasattr(self, "_schedule_enabled"):
@@ -658,6 +674,7 @@ class AttackPanel(QWidget):
         else:
             self._engine.set_schedule()
             self._schedule_status.setText("Runs immediately")
+        self.attack_changed.emit(self._engine.active_type.value, self._engine.get_params())
 
     def _reset_stats(self) -> None:
         self._engine.reset_stats()
@@ -672,7 +689,10 @@ class AttackPanel(QWidget):
         self._stat_modified.setText(f"{stats['modified_packets']:,}")
         self._stat_dropped.setText(f"{stats['dropped_packets']:,}")
         if self._schedule_enabled.isChecked() and self._engine.is_enabled:
-            state = "Active" if self._engine.is_scheduled_active else "Waiting"
+            stats = self._engine.stats
+            schedule = self._engine.schedule
+            state = ("Waiting" if stats["total_packets"] <= schedule["start_frame"] else
+                     "Active" if self._engine.is_scheduled_active else "Finished")
             self._schedule_status.setText(f"{state} at frame {stats['total_packets']:,}")
 
         # Update replay page status if active
@@ -706,10 +726,21 @@ class AttackPanel(QWidget):
         """Pull current engine state into the UI (e.g., after loading a topology)."""
         at    = self._engine.active_type
         idx   = ATTACK_ORDER.index(at) if at in ATTACK_ORDER else 0
+        blockers = [QSignalBlocker(widget) for widget in (
+            self._type_combo, self._enable_btn, self._schedule_enabled,
+            self._schedule_start, self._schedule_duration)]
         self._type_combo.setCurrentIndex(idx)
-        self._enable_btn.setChecked(self._engine.is_enabled)
+        self._stack.setCurrentIndex(idx)
+        self._pages[at].set_params(self._engine.get_params())
+        cls = ATTACK_CLASSES.get(at)
+        self._desc_label.setText(cls.description if cls else "No attack — packets pass through unmodified.")
+        self._set_enable_display(self._engine.is_enabled)
         schedule = self._engine.schedule
         scheduled = bool(schedule["start_frame"] or schedule["duration_frames"])
         self._schedule_enabled.setChecked(scheduled)
         self._schedule_start.setValue(schedule["start_frame"])
         self._schedule_duration.setValue(schedule["duration_frames"])
+        self._schedule_status.setText("Scheduled" if scheduled else "Runs immediately")
+
+    def select_attack(self, attack_type):
+        self._type_combo.setCurrentIndex(ATTACK_ORDER.index(attack_type))

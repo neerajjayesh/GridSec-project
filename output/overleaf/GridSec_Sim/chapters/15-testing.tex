@@ -1,0 +1,167 @@
+\chapter{Testing and verification}\label{chapter-15}
+\Needspace{10\baselineskip}
+\section*{Verification baseline}
+\pdfbookmark[1]{Verification baseline}{chapter-15-s1}
+The following results were recorded during documentation verification using \textbf{Windows and Python 3.14.6}. They describe the checked application checkout, rather than an automatic guarantee for later code changes. Application source was not modified during that verification.
+
+Installed GUI/numerical package versions in that environment were PyQt6 \textbf{6.11.0}, numpy \textbf{2.5.1}, and matplotlib \textbf{3.11.0}. These are observed test versions, not a new dependency lock or a recommendation to require those exact releases.
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Check & \color{white}\bfseries Observed result & \color{white}\bfseries What it establishes \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Check & \color{white}\bfseries Observed result & \color{white}\bfseries What it establishes \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Existing \code{\seqsplit{test\_regression.py}} & \textbf{201/201 passed, 0 failed} & Registered nodes/levels, canvas/property operations, ten attacks, schedule window, topology save/load and MitM attachment tests \\
+C37.118 module self-check & Exit 0 & Internal codec examples/assertions, including CRC and frame round-trips \\
+\rowcolor{pale}
+DNP3 module self-check & Exit 0 & Existing DNP3 framing/helper examples/assertions \\
+Modbus module self-check & Exit 0 & Existing Modbus frame/register examples/assertions \\
+\rowcolor{pale}
+GOOSE module self-check & Exit 0 & Offline GOOSE frame examples/assertions; no live Ethernet test \\
+Attack engine self-check & Exit 0 & Existing examples for all ten modules \\
+\rowcolor{pale}
+Traffic filter self-check & Exit 0 & Existing rule matching examples/assertions \\
+Packet parser self-check & Exit 0 & Existing parsing/rebuilding example \\
+\rowcolor{pale}
+Offscreen MainWindow construction & Passed & Window can initialize; no live simulation was started by this check \\
+Documentation topology in MainWindow & Passed & Three nodes load, validation has no errors/warnings, one intercepted link survives a save/load round-trip \\
+\rowcolor{pale}
+Offline frame documentation example & Passed & 56-byte original/rebuilt frame, Va 120 > 240 V, valid decode, unchanged frequency/timestamp/digital sentinel \\
+Optional PCAP example & Passed & Two complete synthesized UDP records in a 252-byte PCAP \\
+\rowcolor{pale}
+Local API example & Passed & Loopback startup, public status, auth, reads/exports, documented no-hook responses, bounded shutdown \\
+\end{longtable}
+\endgroup
+
+The API check also reproduced the documented empty \code{\seqsplit{proto}} filter result, root 404, unavailable PCAP 404, and missing attack type 400. It did not open an SSE stream, invoke external collectors, or enable a remote attack.
+
+These are observed checks, not a claim that every implementation path is correct. A number of gaps remain outside existing regression coverage, as listed in \hyperref[chapter-16]{Known limitations}.
+
+\Needspace{10\baselineskip}
+\section*{Run the existing regression suite}
+\pdfbookmark[1]{Run the existing regression suite}{chapter-15-s2}
+\par\noindent\begin{minipage}{\linewidth}
+Windows:
+\begin{lstlisting}[title={POWERSHELL}]
+.\.venv\Scripts\python.exe test_regression.py
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}
+Linux/WSL:
+\begin{lstlisting}[title={BASH}]
+.venv/bin/python test_regression.py
+\end{lstlisting}
+\end{minipage}\par
+The script creates an offscreen Qt application and returns nonzero if a \code{\seqsplit{check()}} fails. It is a standalone script, not a pytest suite. Some attack checks involve randomness and timing tolerances. Preserve failure output and investigate before repeating a failed run; repeated success alone does not explain a failure.
+
+\Needspace{10\baselineskip}
+\section*{Run protocol/core self-checks}
+\pdfbookmark[1]{Run protocol/core self-checks}{chapter-15-s3}
+\par\noindent\begin{minipage}{\linewidth}
+After activating your project environment, run from the repository root:
+\begin{lstlisting}[title={BASH}]
+python -X utf8 -m protocols.c37118
+python -X utf8 -m protocols.dnp3
+python -X utf8 -m protocols.modbus
+python -X utf8 -m protocols.goose
+python -X utf8 -m core.attack_engine
+python -X utf8 -m core.traffic_filter
+python -X utf8 -m core.packet_parser
+\end{lstlisting}
+\end{minipage}\par
+You can substitute the environment's full interpreter path for \code{\seqsplit{python}}. \code{\seqsplit{-X}\ \seqsplit{utf8}} avoids Windows console-encoding failures caused by Unicode success symbols. The first verification wrapper encountered such an output-encoding error; repeating the module checks with UTF-8 produced the results above. That was a reporting-environment issue, not a codec assertion failure.
+
+These self-checks cover their embedded examples only. Printing "ALL TESTS PASSED" is not an external standards validation or a comprehensive test inventory.
+
+\Needspace{10\baselineskip}
+\section*{Run documentation examples}
+\pdfbookmark[1]{Run documentation examples}{chapter-15-s4}
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={BASH}]
+python docs/examples/inspect_frame.py
+python docs/examples/inspect_frame.py --pcap sample-frame.pcap
+python docs/examples/serve_api.py --port 18080 --duration 10
+\end{lstlisting}
+\end{minipage}\par
+The PCAP example requires a new filename and opens no network sockets. The API example opens one loopback HTTP listener, prints a local token, and serves one synthetic incident. Use another terminal to query it while running. Omit \code{\seqsplit{--duration}} for an interactive session terminated with \code{\seqsplit{Ctrl+C}}.
+
+\Needspace{10\baselineskip}
+\section*{Manual smoke checks for functional changes}
+\pdfbookmark[1]{Manual smoke checks for functional changes}{chapter-15-s5}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Change area & \color{white}\bfseries Useful validation \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Change area & \color{white}\bfseries Useful validation \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Topology/editor & Add/edit/remove nodes, validate, save/reload, inspect stable IDs and attachment restoration \\
+Attack behavior & Verify exact transformed values, no-op/drop flags, boundaries, schedule indexing and reset behavior \\
+\rowcolor{pale}
+Codec/parser & Check encoded length, CRC, channel counts, timestamp preservation, malformed/short input, and independent decoder acceptance \\
+GUI runtime & Start/stop on isolated endpoints; inspect actual worker/socket state and receiver receipt \\
+\rowcolor{pale}
+Capture & Confirm nonempty selected wire bytes, packet count, headers and independent PCAP parsing \\
+API & Check auth, bad payloads, hook outcomes, actual state transitions, client concurrency and shutdown \\
+\rowcolor{pale}
+Integration lifecycle & Check bind/open failure, stop/restart, resource cleanup and missing GUI wiring \\
+\end{longtable}
+\endgroup
+
+A manual GUI run should start with Clean Baseline, then a controlled magnitude/frequency change, then a reset and finite schedule. For packet loss/delay, use receiver-side timing/counts rather than expecting the waveform alone to show delivery behavior.
+
+\Needspace{10\baselineskip}
+\section*{Historical shell scripts}
+\pdfbookmark[1]{Historical shell scripts}{chapter-15-s6}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries File & \color{white}\bfseries Current caveat \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries File & \color{white}\bfseries Current caveat \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{test\_all.sh}} & Assumes \code{\seqsplit{\textasciitilde{}/GridSecSim}} and \code{\seqsplit{venv/}}; limited module checks \\
+\code{\seqsplit{test\_launch.sh}} & Copies files from a fixed workstation path before launching a check \\
+\rowcolor{pale}
+\code{\seqsplit{deploy\_and\_test.sh}}, \code{\seqsplit{deploy\_integration.sh}} & Copy/overwrite files between fixed Windows/WSL locations \\
+\code{\seqsplit{patch\_mgr.py}} & Rewrites manager source; not a test or supported migration \\
+\end{longtable}
+\endgroup
+
+Use the direct Python commands above for portable verification. Do not run source-copying scripts just to obtain a test result.
+
+\Needspace{10\baselineskip}
+\section*{Documentation artifact checks}
+\pdfbookmark[1]{Documentation artifact checks}{chapter-15-s7}
+The documentation review checks local Markdown targets, JSON syntax/internal references, Python example syntax, API route coverage against the handler, and example topology references. The topology example is also loaded through the actual canvas.
+
+The JSON Schema and OpenAPI files are reference artifacts, not newly installed validators or API behavior changes. Full third-party schema/OpenAPI conformance validation is not claimed. Likewise, STIX export has not been checked with a strict external validator.
+
+\Needspace{10\baselineskip}
+\section*{Not verified in this review}
+\pdfbookmark[1]{Not verified in this review}{chapter-15-s8}
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+\begin{itemize}
+\item Live openPDC or another external PDC receiving modified frames.
+\item Live Linux/WSL raw Ethernet GOOSE publishing.
+\item External SIEM/syslog collector receipt or named vendor interoperability.
+\item Full standards conformance, long-duration stability, measured capacity, or concurrent API/SSE load.
+\item Linux/WSL installation from a clean machine, GUI visual behavior across display stacks, or a packaged release.
+\end{itemize}
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/test_regression.py}{regression suite} (\code{\seqsplit{test\_regression.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/protocols/c37118.py}{codec self-checks} (\code{\seqsplit{protocols/c37118.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/attack_engine.py}{engine self-check} (\code{\seqsplit{core/attack\_engine.py}}), \hyperref[reference-files]{documentation examples}.\par}
+\end{minipage}\par
+

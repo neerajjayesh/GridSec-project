@@ -1,0 +1,60 @@
+\documentclass[10pt,a4paper,oneside]{report}
+\usepackage{gridsec}
+\begin{document}
+\begin{titlepage}
+\color{navy}
+\vspace*{16mm}
+{\color{teal}\rule{16mm}{1.5mm}}\par
+\vspace{7mm}
+{\color{teal}\bfseries\small TECHNICAL DOCUMENTATION}\par
+\vspace{13mm}
+{\fontsize{44}{50}\selectfont\bfseries GridSec Sim}\par
+\vspace{4mm}
+{\fontsize{23}{28}\selectfont Software documentation}\par
+\vspace{13mm}
+{\large\color{muted}A complete guide to installation, experiments, architecture,\par protocols, integrations, and project maintenance.}\par
+\vspace{13mm}
+{\color{teal}\hrule height 0.6pt}
+\vspace{6mm}
+{\color{teal}\bfseries APPLICATION 1.0.0}\par
+\vspace{4mm}
+{\bfseries Project GitHub}\par
+\url{https://github.com/neerajjayesh/GridSec-project}
+\par\vfill
+\noindent\makebox[\linewidth][s]{%
+\colorbox{pale}{\parbox[c][20mm][c]{0.27\textwidth}{\centering\bfseries PMU\par\normalfont\small Generate}}
+\hfill{\color{teal}\Large$\rightarrow$}\hfill
+\colorbox{pale}{\parbox[c][20mm][c]{0.27\textwidth}{\centering\bfseries PROXY\par\normalfont\small Transform}}
+\hfill{\color{teal}\Large$\rightarrow$}\hfill
+\colorbox{pale}{\parbox[c][20mm][c]{0.27\textwidth}{\centering\bfseries PDC\par\normalfont\small Observe}}
+}\par
+\vspace{15mm}
+{\small\color{muted}Research and laboratory use. This manual describes implemented behavior and confirmed limitations; it does not claim production readiness or protocol certification.}\par
+\vspace*{7mm}
+\end{titlepage}
+\setcounter{page}{2}
+\phantomsection\label{contents}\pdfbookmark[0]{Contents}{contents-bookmark}
+\tableofcontents
+\vspace{8pt}
+{\small Commands run from the repository root unless stated otherwise. Example measurements are illustrative. Use the bookmarks and chapter links to navigate. Source references identify project files on GitHub.}
+\input{chapters/01-overview.tex}
+\input{chapters/02-getting-started.tex}
+\input{chapters/03-user-guide.tex}
+\input{chapters/04-architecture.tex}
+\input{chapters/05-configuration.tex}
+\input{chapters/06-attacks.tex}
+\input{chapters/07-protocols.tex}
+\input{chapters/08-api-reference.tex}
+\input{chapters/09-integrations.tex}
+\input{chapters/10-data-formats.tex}
+\input{chapters/11-operations.tex}
+\input{chapters/12-SECURITY.tex}
+\input{chapters/13-development.tex}
+\input{chapters/14-CONTRIBUTING.tex}
+\input{chapters/15-testing.tex}
+\input{chapters/16-known-limitations.tex}
+\input{chapters/17-glossary.tex}
+\input{chapters/18-CHANGELOG.tex}
+\input{chapters/19-reference-files.tex}
+\input{chapters/20-practical-examples.tex}
+\end{document}

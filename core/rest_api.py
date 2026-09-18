@@ -39,11 +39,11 @@ import logging
 import os
 import queue
 import secrets
-import socketserver
+from html import escape
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ class APIState:
     def __init__(self):
         self.api_key:      str  = secrets.token_hex(16)
         self.auth_enabled: bool = True
+        self.stop_event = threading.Event()
 
         # Data stores (set by IntegrationManager)
         self.get_status:     Optional[Callable[[], dict]] = None
@@ -101,12 +102,18 @@ class APIState:
                 self._sse_clients.remove(q)
 
 
-_state = APIState()
-
 
 # ── Request handler ────────────────────────────────────────────────────────────
 
 class GridSecAPIHandler(BaseHTTPRequestHandler):
+
+    @property
+    def _state(self):
+        return self.server.state
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(5.0)
 
     def log_message(self, format, *args):
         # Suppress default access log (too noisy); use our logger instead
@@ -115,11 +122,11 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
     # ── Auth ────────────────────────────────────────────────────────────────
 
     def _is_authorized(self) -> bool:
-        if not _state.auth_enabled:
+        if not self._state.auth_enabled:
             return True
         auth = self.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            return auth[7:] == _state.api_key
+            return secrets.compare_digest(auth[7:], self._state.api_key)
         return False
 
     # ── Response helpers ─────────────────────────────────────────────────────
@@ -159,8 +166,10 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         with open(path, "rb") as f:
-            while chunk := f.read(8192):
+            remaining = size
+            while remaining and (chunk := f.read(min(8192, remaining))):
                 self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def _unauthorized(self) -> None:
         self._send_json({
@@ -180,11 +189,11 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        path   = parsed.path.rstrip("/")
+        path   = parsed.path.rstrip("/") or "/"
         params = dict(urllib.parse.parse_qsl(parsed.query))
 
         # Auth check (except for /api/v1/status which is public)
-        if path != "/api/v1/status" and not self._is_authorized():
+        if path not in ("/", "/api/v1/docs", "/api/v1/status") and not self._is_authorized():
             self._unauthorized()
             return
 
@@ -207,9 +216,13 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         if handler:
             try:
                 handler()
+            except (ValueError, TypeError) as exc:
+                self._send_json({"error": str(exc)}, 400)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                pass
             except Exception as exc:
                 logger.error(f"REST handler error: {exc}")
-                self._send_json({"error": str(exc)}, 500)
+                self._send_json({"error": "Internal server error"}, 500)
         else:
             self._send_json({"error": f"Not found: {path}"}, 404)
 
@@ -221,52 +234,62 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
             self._unauthorized()
             return
 
-        content_len = int(self.headers.get("Content-Length", 0))
-        body_raw    = self.rfile.read(content_len) if content_len else b"{}"
         try:
+            if self.headers.get("Transfer-Encoding"):
+                raise ValueError("Chunked request bodies are not supported")
+            content_len = int(self.headers.get("Content-Length", 0))
+            if not 0 <= content_len <= 65536:
+                raise ValueError("Content-Length must be between 0 and 65536")
+            body_raw = self.rfile.read(content_len) if content_len else b"{}"
             body = json.loads(body_raw)
+            if not isinstance(body, dict):
+                raise ValueError("Request body must be a JSON object")
+            if path == "/api/v1/attack/enable":
+                self._handle_attack_enable(body)
+            elif path == "/api/v1/attack/disable":
+                self._handle_attack_disable()
+            else:
+                self._send_json({"error": f"Not found: {path}"}, 404)
+        except (ValueError, TypeError, UnicodeError) as exc:
+            self._send_json({"error": str(exc)}, 400)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
         except Exception:
-            body = {}
-
-        if path == "/api/v1/attack/enable":
-            self._handle_attack_enable(body)
-        elif path == "/api/v1/attack/disable":
-            self._handle_attack_disable()
-        else:
-            self._send_json({"error": f"Not found: {path}"}, 404)
+            logger.exception("REST attack callback failed")
+            self._send_json({"error": "Attack operation failed"}, 500)
 
     # ── Handlers ────────────────────────────────────────────────────────────
 
     def _handle_status(self) -> None:
         status = {}
-        if _state.get_status:
-            status = _state.get_status()
+        if self._state.get_status:
+            status = self._state.get_status()
         self._send_json({
             "tool":      "GridSec Sim",
             "version":   "1.0.0",
             "timestamp": time.time(),
-            "auth":      _state.auth_enabled,
+            "auth":      self._state.auth_enabled,
             **status,
         })
 
     def _handle_simulation(self) -> None:
-        data = _state.get_status() if _state.get_status else {}
+        data = self._state.get_status() if self._state.get_status else {}
         self._send_json(data)
 
     def _handle_topology(self) -> None:
-        data = _state.get_topology() if _state.get_topology else {}
+        data = self._state.get_topology() if self._state.get_topology else {}
         self._send_json(data)
 
     def _handle_attacks(self) -> None:
-        data = _state.get_attacks() if _state.get_attacks else {}
+        data = self._state.get_attacks() if self._state.get_attacks else {}
         self._send_json(data)
 
     def _handle_incidents(self, params: dict) -> None:
-        incidents = _state.get_incidents() if _state.get_incidents else []
-        limit = int(params.get("limit", 100))
+        incidents = self._state.get_incidents() if self._state.get_incidents else []
+        limit = self._limit(params, 100)
         proto = params.get("proto", "").upper()
         if proto:
-            incidents = [i for i in incidents if i.get("proto", "").upper() == proto]
+            incidents = [i for i in incidents if i.get("protocol", "").upper() == proto]
         self._send_json({
             "count":     len(incidents[-limit:]),
             "total":     len(incidents),
@@ -274,15 +297,22 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         })
 
     def _handle_packets(self, params: dict) -> None:
-        packets = _state.get_packets() if _state.get_packets else []
-        limit = int(params.get("limit", 50))
+        packets = self._state.get_packets() if self._state.get_packets else []
+        limit = self._limit(params, 50)
         self._send_json({
             "count":   len(packets[-limit:]),
             "packets": packets[-limit:],
         })
 
+    @staticmethod
+    def _limit(params, default):
+        limit = int(params.get("limit", default))
+        if not 1 <= limit <= 10000:
+            raise ValueError("limit must be between 1 and 10000")
+        return limit
+
     def _handle_export_stix(self) -> None:
-        bundle = _state.get_stix() if _state.get_stix else {}
+        bundle = self._state.get_stix() if self._state.get_stix else {}
         self._send_text(
             json.dumps(bundle, indent=2),
             content_type="application/json",
@@ -290,15 +320,15 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_export_csv(self) -> None:
-        csv_data = _state.get_csv() if _state.get_csv else ""
+        csv_data = self._state.get_csv() if self._state.get_csv else ""
         self._send_text(csv_data, content_type="text/csv",
                         filename="gridsec_incidents.csv")
 
     def _handle_export_pcap(self) -> None:
-        if not _state.get_pcap_path:
+        if not self._state.get_pcap_path:
             self._send_json({"error": "pcap capture not active"}, 404)
             return
-        path = _state.get_pcap_path()
+        path = self._state.get_pcap_path()
         if not path or not os.path.isfile(path):
             self._send_json({"error": "pcap file not available"}, 404)
             return
@@ -308,18 +338,21 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
     def _handle_attack_enable(self, body: dict) -> None:
         attack_type = body.get("type", "")
         params      = body.get("params", {})
-        if not attack_type:
+        if not isinstance(attack_type, str) or not attack_type:
             self._send_json({"error": "Missing 'type' field"}, 400)
             return
+        if not isinstance(params, dict):
+            raise ValueError("params must be a JSON object")
         success = False
-        if _state.enable_attack:
-            success = _state.enable_attack(attack_type, params)
-        self._send_json({"success": success, "attack_type": attack_type})
+        if self._state.enable_attack:
+            success = self._state.enable_attack(attack_type, params)
+        self._send_json({"success": bool(success), "attack_type": attack_type},
+                        200 if success else 503)
 
     def _handle_attack_disable(self) -> None:
-        if _state.disable_attack:
-            _state.disable_attack()
-        self._send_json({"success": True, "message": "All attacks disabled"})
+        success = self._state.disable_attack() if self._state.disable_attack else False
+        self._send_json({"success": bool(success)},
+                        200 if success else 503)
 
     def _handle_sse(self) -> None:
         """Server-Sent Events: push live packet events to connected clients."""
@@ -330,18 +363,18 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
 
-        # Send initial ping
+        q = self._state.add_sse_client()
+        # Register before sending the initial ping so no events are missed.
         try:
             self.wfile.write(b": GridSec Sim SSE stream\n\n")
             self.wfile.flush()
         except Exception:
+            self._state.remove_sse_client(q)
             return
-
-        q = _state.add_sse_client()
         try:
-            while True:
+            while not self.server.stop_event.is_set():
                 try:
-                    msg = q.get(timeout=30.0)
+                    msg = q.get(timeout=0.5)
                     self.wfile.write(msg.encode("utf-8"))
                     self.wfile.flush()
                 except queue.Empty:
@@ -351,13 +384,13 @@ class GridSecAPIHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
         finally:
-            _state.remove_sse_client(q)
+            self._state.remove_sse_client(q)
 
     def _handle_docs(self) -> None:
         """Serve a simple HTML API documentation page."""
         html = _API_DOCS_HTML.format(
-            host=self.headers.get("Host", "127.0.0.1:8080"),
-            api_key=_state.api_key if _state.auth_enabled else "(auth disabled)",
+            host=escape(self.headers.get("Host", "127.0.0.1:8080")),
+            api_key="YOUR_API_KEY" if self._state.auth_enabled else "(auth disabled)",
         )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -468,32 +501,34 @@ class GridSecRESTServer:
     """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8080):
+        self._state = APIState()
+        self.last_error = ""
         self._host   = host
         self._port   = port
-        self._server: Optional[HTTPServer] = None
+        self._server: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
 
     # ── Callback setters ────────────────────────────────────────────────────
 
-    def set_status_callback(self, fn: Callable)   -> None: _state.get_status    = fn
-    def set_topology_callback(self, fn: Callable) -> None: _state.get_topology  = fn
-    def set_attacks_callback(self, fn: Callable)  -> None: _state.get_attacks   = fn
-    def set_incidents_callback(self, fn: Callable)-> None: _state.get_incidents = fn
-    def set_packets_callback(self, fn: Callable)  -> None: _state.get_packets   = fn
-    def set_stix_callback(self, fn: Callable)     -> None: _state.get_stix      = fn
-    def set_csv_callback(self, fn: Callable)      -> None: _state.get_csv       = fn
-    def set_pcap_path_callback(self, fn: Callable)-> None: _state.get_pcap_path = fn
-    def set_enable_attack_callback(self, fn: Callable) -> None: _state.enable_attack  = fn
-    def set_disable_attack_callback(self, fn: Callable)-> None: _state.disable_attack = fn
+    def set_status_callback(self, fn: Callable)   -> None: self._state.get_status    = fn
+    def set_topology_callback(self, fn: Callable) -> None: self._state.get_topology  = fn
+    def set_attacks_callback(self, fn: Callable)  -> None: self._state.get_attacks   = fn
+    def set_incidents_callback(self, fn: Callable)-> None: self._state.get_incidents = fn
+    def set_packets_callback(self, fn: Callable)  -> None: self._state.get_packets   = fn
+    def set_stix_callback(self, fn: Callable)     -> None: self._state.get_stix      = fn
+    def set_csv_callback(self, fn: Callable)      -> None: self._state.get_csv       = fn
+    def set_pcap_path_callback(self, fn: Callable)-> None: self._state.get_pcap_path = fn
+    def set_enable_attack_callback(self, fn: Callable) -> None: self._state.enable_attack  = fn
+    def set_disable_attack_callback(self, fn: Callable)-> None: self._state.disable_attack = fn
 
-    def set_api_key(self, key: str)      -> None: _state.api_key      = key
-    def disable_auth(self)               -> None: _state.auth_enabled  = False
-    def enable_auth(self)                -> None: _state.auth_enabled  = True
+    def set_api_key(self, key: str)      -> None: self._state.api_key      = key
+    def disable_auth(self)               -> None: self._state.auth_enabled  = False
+    def enable_auth(self)                -> None: self._state.auth_enabled  = True
 
     @property
     def api_key(self) -> str:
-        return _state.api_key
+        return self._state.api_key
 
     @property
     def port(self) -> int:
@@ -501,32 +536,46 @@ class GridSecRESTServer:
 
     def broadcast_event(self, event_type: str, data: dict) -> None:
         """Push a live event to all SSE subscribers."""
-        _state.broadcast_event(event_type, data)
+        self._state.broadcast_event(event_type, data)
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
     def start(self) -> bool:
         """Start the REST API server in a daemon thread. Returns True on success."""
+        if self._running:
+            return True
         try:
-            socketserver.TCPServer.allow_reuse_address = True
-            self._server = HTTPServer((self._host, self._port), GridSecAPIHandler)
+            self._state.stop_event = threading.Event()
+            self._server = ThreadingHTTPServer((self._host, self._port), GridSecAPIHandler)
+            self._server.daemon_threads = True
+            self._server.state = self._state
+            self._server.stop_event = self._state.stop_event
+            self._port = self._server.server_port
             self._running = True
             self._thread  = threading.Thread(
-                target=self._serve, daemon=True, name="REST-API"
+                target=self._server.serve_forever, kwargs={"poll_interval": 0.1},
+                daemon=True, name="REST-API"
             )
             self._thread.start()
             logger.info(f"REST API: http://{self._host}:{self._port}/api/v1/status")
-            logger.info(f"REST API key: {_state.api_key}")
+            self.last_error = ""
             return True
         except OSError as e:
+            self.last_error = str(e)
+            self._running = False
             logger.error(f"REST API failed to start on port {self._port}: {e}")
             return False
 
     def stop(self) -> None:
         self._running = False
+        self._state.stop_event.set()
         if self._server:
             self._server.shutdown()
+            self._server.server_close()
             self._server = None
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=2)
+        self._thread = None
         logger.info("REST API server stopped")
 
     def _serve(self) -> None:

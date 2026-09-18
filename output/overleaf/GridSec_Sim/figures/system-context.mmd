@@ -1,0 +1,11 @@
+flowchart LR
+    User[Operator] --> GUI[PyQt6 desktop]
+    GUI --> PMU[PMU generator]
+    PMU -->|UDP C37.118| Proxy[Parser / filter / attack / rebuild]
+    Proxy -->|UDP| Receiver[Optional external PDC receiver]
+    Proxy -->|PacketRecord via Qt signal| GUI
+    GUI --> Plots[Waveforms and packet log]
+    GUI --> Manager[IntegrationManager]
+    Manager --> Files[JSON / CSV / experimental STIX]
+    Manager -. core interfaces .-> External[PCAP / Syslog / REST]
+    GUI --> Aux[GOOSE / DNP3 / Modbus simulators]

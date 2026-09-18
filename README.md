@@ -1,181 +1,91 @@
 # GridSec Sim
 
-A **Smart Grid Cybersecurity Simulation Tool** — a Man-in-the-Middle attack simulator for IEEE C37.118 synchrophasor protocols, inspired by NetSim Cyber.
+**Smart grid cybersecurity simulation and protocol analysis for research, teaching, and controlled laboratory experiments.**
 
----
+GridSec Sim is a Python desktop application for creating substation topologies, generating synchrophasor measurements, applying controlled changes to a C37.118 stream, and comparing original and modified signals. Its PyQt6 interface combines a topology canvas, attack controls, waveform plots, packet records, and integration panels.
 
-## What It Does
+**Project GitHub:** [neerajjayesh/GridSec-project](https://github.com/neerajjayesh/GridSec-project)
 
-GridSec Sim lets you:
-- **Simulate a PMU** (Phasor Measurement Unit) generating real IEEE C37.118 binary frames
-- **Intercept the data stream** with a built-in MitM proxy
-- **Apply cyberattack modules** (noise injection, frequency override, replay attacks, packet drop, and more)
-- **Visualize the attack** in real-time via a waveform viewer
-- **Forward tampered data to openPDC** (or any C37.118-compatible PDC)
-- **Design network topologies** on a Cisco Packet Tracer–style drag-and-drop canvas
+The application reports version **1.0.0**. This documentation describes implemented behavior, including incomplete features. It does not claim production readiness or protocol certification.
 
----
+## Documentation
 
-## Requirements
+**[Download the complete PDF manual](output/pdf/GridSec_Sim_Documentation.pdf)** - includes clickable contents, architecture diagrams, full worked examples, and embedded reference files.
 
-- **OS**: Ubuntu 22.04 (WSL2 on Windows or bare Linux VM)
-- **Python**: 3.10 or higher
-- **Display**: Required for the GUI (use WSLg, VcXsrv, or X410 for WSL2)
+**[Download the Overleaf project](output/overleaf/GridSec_Sim_Overleaf.zip)** - editable LaTeX chapters, figures, and examples; compile `main.tex` with pdfLaTeX.
 
----
+| Your task | Read |
+|---|---|
+| Install and run your first experiment | [Getting started](docs/getting-started.md) |
+| Learn the interface and scenarios | [User guide](docs/user-guide.md) |
+| Understand project capabilities | [Product overview](docs/overview.md) |
+| Understand the implementation | [Architecture](docs/architecture.md) |
+| Configure attacks and scheduling | [Attack reference](docs/attacks.md) |
+| Use protocols, APIs, and exports | [Protocols](docs/protocols.md), [REST API](docs/api-reference.md), [Integrations](docs/integrations.md) |
+| Maintain or extend the project | [Development](docs/development.md), [Testing](docs/testing.md), [Contributing](CONTRIBUTING.md) |
+| Browse everything | **[Full documentation index](docs/index.md)** |
 
-## Installation (Linux / WSL2)
+## Quick start
+
+Run from the directory containing `main.py`. Create a fresh environment for your operating system.
+
+### Windows PowerShell
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py --demo
+```
+
+### Linux or WSL
 
 ```bash
-# Clone or copy the project to your Linux environment
-cd GridSecSim
-
-# Run the one-command installer
-bash install.sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py --demo
 ```
 
-The installer will:
-1. Verify Python 3.10+
-2. Install system packages (`libxcb`, `libgl1`, etc.)
-3. Create a Python virtual environment (`venv/`)
-4. Install all Python dependencies
+Python 3.10 or later and a working Qt display environment are required. See [Getting started](docs/getting-started.md) for platform details.
 
----
+Choose **Scenarios → Clean Baseline**, then **Run** (`F5`). Use **Stop** (`F6`) before selecting another scenario. Choose **Noisy Sensor**, run again, and compare the waveforms.
 
-## Running the App
+## Current capabilities
 
-```bash
-cd GridSecSim
-source venv/bin/activate
-python main.py
+- Thirteen node types across process, bay, station, and state levels.
+- Topology editing, protocol labels, validation, and version 2 JSON saves.
+- One active PMU-to-proxy C37.118 stream in the desktop runtime.
+- Ten attack modules, packet-based scheduling, and original/modified plots.
+- Auxiliary DNP3 and Modbus simulators; a Linux raw Ethernet GOOSE publisher.
+- Incident JSON/CSV export and experimental STIX export.
+- Core libraries for PCAP, Syslog/CEF, and a local REST API.
+
+The first PMU and Local PDC determine the desktop stream. Canvas links do not create independent routes or attack engines. Some integration buttons call missing manager methods, and the GUI capture callback does not supply packet bytes. Read [Known limitations](docs/known-limitations.md) before relying on these workflows.
+
+## Verification
+
+```powershell
+.\.venv\Scripts\python.exe test_regression.py
 ```
 
-### WSL2 Display Setup (if needed)
+On Linux, use `.venv/bin/python test_regression.py`. The existing suite passed **201/201 checks** during this review. See [Testing](docs/testing.md) for coverage and verification boundaries.
 
-**Option A — WSLg** (Windows 11 with WSL2, auto-configured):
-```bash
-# Just run python main.py — WSLg handles display automatically
+## Repository layout
+
+```text
+main.py                 Desktop entry point
+core/                   Simulators, proxy, attacks, filters, integrations
+protocols/              Binary codecs and frame helpers
+gui/                    Qt windows, canvas, panels, and plots
+docs/                   User, reference, and maintenance documentation
+requirements.txt        Direct dependencies with minimum versions
+test_regression.py      Offscreen regression suite
+mitm-demo-topology.json  Small demonstration topology
+hard-topology.json       Larger topology illustration
+SCENARIOS.md            Earlier extended scenario workbook
 ```
 
-**Option B — VcXsrv** (Windows 10):
-1. Install [VcXsrv](https://sourceforge.net/projects/vcxsrv/)
-2. Launch XLaunch → "Multiple windows" → Disable access control
-3. In WSL2: `export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0`
-4. Then run `python main.py`
+## Project use and licensing
 
----
+Use GridSec Sim within an authorized, isolated laboratory. Starting a simulation attempts to start auxiliary protocol services as well as C37.118; see [Operations](docs/operations.md).
 
-## Quick Start — End-to-End Simulation
-
-1. Launch the app: `python main.py`
-2. **Drag a PMU node** onto the canvas → right-click → set IP=`127.0.0.1`, Port=`4712`
-3. **Drag a PDC node** → right-click → set IP=`127.0.0.1`, Port=`4713`
-4. **Draw a link** between PMU and PDC (click Connect, then click each node)
-5. **Drag a Threat Agent** onto the link (it becomes the MitM)
-6. Open **Attack Panel** (right side) → select "Noise Attack" → set std_dev=`2.0`
-7. Click **Run Simulation** (toolbar)
-8. Watch the **waveform viewer** — green = clean signal, red = tampered signal
-9. Read the **packet log** — attacked packets shown in red
-
-### Guided scenarios and safer runs
-
-- Use **File → Load MitM Demo** (or `python main.py --demo`) to load a ready-to-run PMU → MitM → PDC topology.
-- Use the **Scenarios** menu to apply a clean baseline, noise, GPS spoofing, false-data, packet-loss, or replay setup in one click.
-- Use **Validate Topology** before running. It blocks missing PMU/PDC setups and highlights unattached Threat Agents, missing C37.118 links, and single-stream port conflicts.
-- Attack schedules can delay an enabled attack until a selected packet frame and optionally stop it after a selected duration.
-- Saved topologies use the portable **v2** schema, with stable node IDs and retained MitM attachments. Legacy topology files remain supported.
-
----
-
-## openPDC Integration
-
-openPDC listens for C37.118 data on a configurable port (default: **TCP 4712**).
-
-To forward the tampered stream to openPDC:
-1. Ensure openPDC is running on your Windows host or Linux VM
-2. In the PDC node properties, set the IP to your openPDC host (e.g., `192.168.1.100`) and Port=`4712`
-3. Run the simulation — GridSec Sim's proxy will forward each (possibly modified) frame to openPDC
-
-You can verify the tampered data by observing the openPDC waveform display showing corrupted voltage/frequency readings.
-
----
-
-## Attack Modules
-
-| Attack | Description |
-|--------|-------------|
-| **Noise** | Gaussian random noise on phasor magnitudes |
-| **Ramp** | Linear drift of magnitude or frequency over time |
-| **Pulse** | Periodic sudden spike in a field |
-| **Frequency Override** | Force FREQ field to a specific value (45–65 Hz) |
-| **Magnitude Override** | Force a specific phasor's magnitude |
-| **Angle Override** | Force a specific phasor's angle |
-| **Replay** | Record N frames and loop-replay them (freeze attack) |
-| **Delay** | Inject latency (milliseconds) before forwarding |
-| **Drop** | Randomly discard X% of packets |
-| **Scale** | Multiply all phasor magnitudes by a scale factor |
-
----
-
-## Project Structure
-
-```
-GridSecSim/
-├── main.py                  # App entry point
-├── requirements.txt         # Python dependencies
-├── install.sh               # One-command Linux installer
-├── README.md                # This file
-│
-├── core/
-│   ├── pmu_simulator.py     # IEEE C37.118 PMU data generator thread
-│   ├── pdc_proxy.py         # MitM proxy (PMU → attack → openPDC)
-│   ├── packet_parser.py     # C37.118 binary frame parser/rebuilder
-│   ├── attack_engine.py     # All 10 attack modules
-│   └── traffic_filter.py   # Packet filter rules
-│
-├── protocols/
-│   ├── c37118.py            # Full IEEE C37.118-2011 encoder/decoder
-│   ├── dnp3.py              # DNP3 stub
-│   ├── modbus.py            # Modbus TCP stub
-│   └── iec104.py            # IEC 60870-5-104 stub
-│
-├── gui/
-│   ├── main_window.py       # Main window (Packet Tracer layout)
-│   ├── canvas.py            # Drag-and-drop topology canvas
-│   ├── node_types.py        # PMU, PDC, Switch, ThreatAgent, Virtual nodes
-│   ├── properties_panel.py  # Node/link configuration panel
-│   ├── attack_panel.py      # Attack configuration panel
-│   ├── waveform_viewer.py   # Live matplotlib signal viewer
-│   └── styles.qss           # Dark theme Qt stylesheet
-│
-└── assets/icons/            # Node icon images
-```
-
----
-
-## Protocol Reference
-
-- **IEEE C37.118-2011**: Primary simulated protocol. Synchrophasor data standard.
-- **DNP3**: Stub implementation — structure only, no live simulation yet.
-- **Modbus TCP**: Stub implementation.
-- **IEC 60870-5-104**: Stub implementation.
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| `cannot connect to X server` | Set `DISPLAY` env var — see WSL2 Display Setup above |
-| `Address already in use` | Port 4712 is busy — change proxy port in node properties |
-| `No module named PyQt6` | Run `source venv/bin/activate` first |
-| `openPDC not receiving data` | Check firewall rules; ensure openPDC listens on correct port |
-| GUI freezes | All network ops run in threads — if it freezes, report as bug |
-
----
-
-## License
-
-MIT License — For educational and research purposes only.
-
-> ⚠️ **Warning**: This tool is for authorized cybersecurity research and education only. Unauthorized use against real power grid infrastructure is illegal and dangerous.
+Earlier project text identifies the license as MIT, but this checkout contains no `LICENSE` file. The maintainer must supply the authoritative license and copyright notice before licensing status can be confirmed. See [Security](SECURITY.md) for the current security model.

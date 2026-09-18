@@ -33,6 +33,9 @@ Zeek usage:
 """
 
 import os
+import errno
+import stat
+import socket
 import struct
 import threading
 import time
@@ -149,7 +152,7 @@ def build_tcp_header(src_port: int, dst_port: int, seq: int = 1,
         ack,
         (data_offset << 12) | flags,
         65535,    # window size
-        0,        # checksum (0 = let receiver ignore, valid in practice)
+        0,        # filled using the IPv4 pseudo-header in build_tcp_packet
         0,        # urgent pointer
     )
 
@@ -187,6 +190,10 @@ def build_tcp_packet(
     """Build complete Ethernet+IPv4+TCP frame."""
     tcp_hdr = build_tcp_header(src_port, dst_port, seq, flags=flags)
     tcp_pkt = tcp_hdr + payload
+    pseudo = struct.pack(">4s4sBBH", socket.inet_aton(src_ip),
+                         socket.inet_aton(dst_ip), 0, IPPROTO_TCP, len(tcp_pkt))
+    checksum = _ip_checksum(pseudo + tcp_pkt)
+    tcp_pkt = tcp_pkt[:16] + struct.pack(">H", checksum) + tcp_pkt[18:]
     ip_hdr  = build_ipv4_header(src_ip, dst_ip, IPPROTO_TCP, len(tcp_pkt), pkt_id)
     eth_hdr = build_ethernet_header(dst_mac, src_mac, ETH_TYPE_IPV4)
     return eth_hdr + ip_hdr + tcp_pkt
@@ -217,6 +224,9 @@ class PcapWriter:
         self._pkt_count = 0
         self._error     = ""
         self._active    = False
+        self._closed = threading.Event()
+        self._fifo_thread = None
+        self._owns_fifo = False
 
         self._open()
 
@@ -226,15 +236,20 @@ class PcapWriter:
             if parent:
                 os.makedirs(parent, exist_ok=True)
             if self._use_fifo:
-                # Create named pipe if it doesn't exist
-                if os.path.exists(self._path):
-                    os.remove(self._path)
-                os.mkfifo(self._path)
+                if not hasattr(os, "mkfifo"):
+                    raise OSError("Live FIFO capture requires Linux/WSL; use a PCAP file on Windows")
+                if os.path.lexists(self._path):
+                    if not stat.S_ISFIFO(os.lstat(self._path).st_mode):
+                        raise OSError("Refusing to replace an existing file with a FIFO")
+                else:
+                    os.mkfifo(self._path, 0o600)
+                    self._owns_fifo = True
                 logger.info(f"pcap: FIFO created at {self._path}")
                 logger.info(f"pcap: Run: wireshark -k -i {self._path}")
                 # Open in a thread to avoid blocking (open blocks until reader connects)
                 self._file = None
-                threading.Thread(target=self._open_fifo, daemon=True).start()
+                self._fifo_thread = threading.Thread(target=self._open_fifo, daemon=True)
+                self._fifo_thread.start()
             else:
                 self._file = open(self._path, 'wb')
                 self._write_global_header()
@@ -245,13 +260,26 @@ class PcapWriter:
             logger.error(f"pcap: Failed to open {self._path}: {e}")
 
     def _open_fifo(self) -> None:
-        """Open FIFO in a thread (blocks until Wireshark connects)."""
+        """Wait for a reader without leaving an uninterruptible worker behind."""
         try:
             logger.info(f"pcap: Waiting for Wireshark to connect to {self._path}...")
-            self._file = open(self._path, 'wb')
-            self._write_global_header()
-            self._file.flush()
-            self._active = True
+            while not self._closed.is_set():
+                try:
+                    fd = os.open(self._path, os.O_WRONLY | os.O_NONBLOCK)
+                    break
+                except OSError as exc:
+                    if exc.errno != errno.ENXIO:
+                        raise
+                    self._closed.wait(0.1)
+            else:
+                return
+            with self._lock:
+                if self._closed.is_set():
+                    os.close(fd)
+                    return
+                self._file = os.fdopen(fd, 'wb', buffering=0)
+                self._write_global_header()
+                self._active = True
             logger.info(f"pcap: Wireshark connected to FIFO")
         except Exception as e:
             self._error = str(e)
@@ -269,6 +297,7 @@ class PcapWriter:
             PCAP_LINKTYPE_ETHERNET,
         )
         self._file.write(hdr)
+        self._file.flush()
 
     def _write_packet(self, raw_frame: bytes, ts: Optional[float] = None) -> None:
         """Write one pcap packet record (header + data)."""
@@ -284,8 +313,11 @@ class PcapWriter:
         rec_hdr = struct.pack('<IIII', ts_sec, ts_usec, caplen, len(raw_frame))
         try:
             with self._lock:
-                self._file.write(rec_hdr)
-                self._file.write(raw_frame[:caplen])
+                if self._closed.is_set() or not self._file:
+                    return
+                blob = rec_hdr + raw_frame[:caplen]
+                if self._file.write(blob) != len(blob):
+                    raise OSError("Capture writer could not write a complete packet")
                 self._file.flush()
                 self._pkt_count += 1
         except BrokenPipeError:
@@ -293,6 +325,7 @@ class PcapWriter:
             logger.info("pcap: Reader disconnected (BrokenPipe)")
         except Exception as e:
             self._error = str(e)
+            self._active = False
             logger.debug(f"pcap write error: {e}")
 
     # ── Public write methods ──────────────────────────────────────────────────
@@ -383,7 +416,10 @@ class PcapWriter:
 
     def close(self) -> None:
         """Flush and close the pcap file/FIFO."""
+        self._closed.set()
         self._active = False
+        if self._fifo_thread:
+            self._fifo_thread.join(timeout=1)
         with self._lock:
             if self._file:
                 try:
@@ -392,7 +428,7 @@ class PcapWriter:
                 except Exception:
                     pass
                 self._file = None
-        if self._use_fifo and os.path.exists(self._path):
+        if self._owns_fifo and os.path.exists(self._path) and stat.S_ISFIFO(os.lstat(self._path).st_mode):
             try:
                 os.remove(self._path)
             except Exception:

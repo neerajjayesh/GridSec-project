@@ -44,14 +44,12 @@ sudo apt-get install -y \
     python3-venv \
     libxcb-xinerama0 \
     libxcb-cursor0 \
-    libgl1-mesa-glx \
     libgl1 \
     libglib2.0-0 \
     libfontconfig1 \
     libdbus-1-3 \
     libegl1 \
-    net-tools \
-    2>/dev/null || true
+    net-tools
 echo -e "  ${GREEN}✔ System packages installed${NC}"
 
 # ── 3. Create virtual environment ─────────────────────────────────────────────
@@ -75,9 +73,8 @@ echo -e "  ${GREEN}✔ Python packages installed${NC}"
 
 # ── 5. Verify installation ────────────────────────────────────────────────────
 echo -e "${YELLOW}[5/5] Verifying installation...${NC}"
-python -c "import PyQt6; import matplotlib; import numpy; import scapy; print('  All imports OK')" && \
-    echo -e "  ${GREEN}✔ All modules verified${NC}" || \
-    echo -e "  ${RED}✘ Some modules failed to import — check output above${NC}"
+python -c "from PyQt6.QtWidgets import QApplication; import matplotlib; import numpy; import scapy; print('  All imports OK')"
+echo -e "  ${GREEN}✔ All modules verified${NC}"
 
 deactivate
 

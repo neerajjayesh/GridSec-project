@@ -1,0 +1,1084 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "GridSec Sim REST API",
+    "version": "1.0.0",
+    "description": "Describes the implemented core HTTP interface. Desktop API start convenience methods and remote attack hooks are not wired. Server request handling is serial; SSE can block other requests. No TLS is provided."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "Core server default"
+    },
+    {
+      "url": "http://127.0.0.1:18080",
+      "description": "Documentation example"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "State"
+    },
+    {
+      "name": "Records"
+    },
+    {
+      "name": "Exports"
+    },
+    {
+      "name": "Attacks"
+    },
+    {
+      "name": "Events"
+    },
+    {
+      "name": "Help"
+    }
+  ],
+  "paths": {
+    "/api/v1/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "Get public status",
+        "tags": [
+          "State"
+        ],
+        "description": "Public endpoint; manager sim_running may be stale after GUI Stop. Counts are retained records, not lifetime totals.",
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "options": {
+        "operationId": "optionsgetStatus",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/simulation": {
+      "get": {
+        "operationId": "getSimulation",
+        "summary": "Get simulation callback state",
+        "tags": [
+          "State"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Simulation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetSimulation",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/topology": {
+      "get": {
+        "operationId": "getTopology",
+        "summary": "Get latest topology snapshot",
+        "tags": [
+          "State"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Topology"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetTopology",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/attacks/current": {
+      "get": {
+        "operationId": "getAttackSnapshot",
+        "summary": "Get attack callback snapshot",
+        "tags": [
+          "State"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttacksSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetAttackSnapshot",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/incidents": {
+      "get": {
+        "operationId": "getIncidents",
+        "summary": "Read retained incidents",
+        "tags": [
+          "Records"
+        ],
+        "description": "Returns last N in chronological order. Manager retains 10,000 entries. No cursor or durable history.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100
+            },
+            "description": "Use a positive integer. Implementation does not enforce bounds; zero returns all retained entries, negative values have Python slicing behavior; nonintegers can yield 500."
+          },
+          {
+            "name": "proto",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Known defect: handler checks proto, but manager records use protocol. Nonempty filter returns no standard-manager matches. Omit and filter client-side."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Incidents"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetIncidents",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/packets/recent": {
+      "get": {
+        "operationId": "getPackets",
+        "summary": "Read retained packet summaries",
+        "tags": [
+          "Records"
+        ],
+        "description": "Manager retains 1,000 summaries.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            },
+            "description": "Use a positive integer. Implementation does not enforce bounds; zero returns all retained entries, negative values have Python slicing behavior; nonintegers can yield 500."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful callback result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Packets"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetPackets",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/export/stix": {
+      "get": {
+        "operationId": "exportStix",
+        "summary": "Experimental STIX export; observed-data limited to latest 20 attacked incidents.",
+        "tags": [
+          "Exports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment: gridsec_stix2.json",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=\"gridsec_stix2.json\""
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StixBundle"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsexportStix",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/export/csv": {
+      "get": {
+        "operationId": "exportCsv",
+        "summary": "Nine-column incident summary, including clean records.",
+        "tags": [
+          "Exports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment: gridsec_incidents.csv",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=\"gridsec_incidents.csv\""
+              }
+            },
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsexportCsv",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/export/pcap": {
+      "get": {
+        "operationId": "exportPcap",
+        "summary": "Requires an available PCAP file. Desktop start and byte-delivery paths are incomplete.",
+        "tags": [
+          "Exports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment: gridsec_capture.pcap",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=\"gridsec_capture.pcap\""
+              }
+            },
+            "content": {
+              "application/vnd.tcpdump.pcap": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsexportPcap",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "getEvents",
+        "summary": "Subscribe to future attacked/dropped incident events",
+        "tags": [
+          "Events"
+        ],
+        "description": "Serial HTTPServer: this request can block all others and delay shutdown. Queue 100; no event IDs/replay. Keepalive comments roughly every 30 idle seconds. Disconnect before shutdown.",
+        "responses": {
+          "200": {
+            "description": "SSE stream with incident event and JSON Incident data.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetEvents",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/docs": {
+      "get": {
+        "operationId": "getEmbeddedDocs",
+        "summary": "Read authenticated embedded HTML help",
+        "tags": [
+          "Help"
+        ],
+        "description": "Root / is not a working alias because path normalization strips it. Embedded help contains legacy examples; use the Markdown reference for current behavior.",
+        "responses": {
+          "200": {
+            "description": "HTML help",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsgetEmbeddedDocs",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/attack/enable": {
+      "post": {
+        "operationId": "enableAttack",
+        "summary": "Invoke optional attack-enable hook",
+        "tags": [
+          "Attacks"
+        ],
+        "description": "Desktop does not install this hook. Without one, success is false. Invalid JSON becomes an empty object. Hook must validate type/parameters and coordinate threading; HTTP 200 alone does not confirm effect.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttackEnable"
+              },
+              "example": {
+                "type": "NOISE",
+                "params": {
+                  "noise_std": 5
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Hook result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttackEnableResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsenableAttack",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    },
+    "/api/v1/attack/disable": {
+      "post": {
+        "operationId": "disableAttack",
+        "summary": "Invoke optional attack-disable hook",
+        "tags": [
+          "Attacks"
+        ],
+        "description": "Returns success even if no hook is connected and nothing changes.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledgment, not proof of engine change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttackDisableResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request error. Malformed POST values can also cause a connection failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "options": {
+        "operationId": "optionsdisableAttack",
+        "summary": "CORS preflight",
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Allows GET, POST, OPTIONS; Authorization and Content-Type; origin *."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Process-global token generated with secrets.token_hex(16). Not a JWT. GET status and OPTIONS are public. Explicit disable_auth() disables enforcement."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": true
+      },
+      "IntegrationFlags": {
+        "type": "object",
+        "properties": {
+          "pcap": {
+            "type": "boolean"
+          },
+          "syslog": {
+            "type": "boolean"
+          },
+          "rest_api": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Simulation": {
+        "type": "object",
+        "properties": {
+          "sim_running": {
+            "type": "boolean"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "uptime_s": {
+            "type": "integer"
+          },
+          "total_incidents": {
+            "type": "integer"
+          },
+          "attacked": {
+            "type": "integer"
+          },
+          "integrations": {
+            "$ref": "#/components/schemas/IntegrationFlags"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Status": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Simulation"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string",
+                "example": "GridSec Sim"
+              },
+              "version": {
+                "type": "string",
+                "example": "1.0.0"
+              },
+              "timestamp": {
+                "type": "number"
+              },
+              "auth": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "tool",
+              "version",
+              "timestamp",
+              "auth"
+            ],
+            "additionalProperties": true
+          }
+        ]
+      },
+      "Frame": {
+        "type": "object",
+        "description": "Serialized frame dictionary. Raw bytes are stringified by the manager; no base64 contract.",
+        "additionalProperties": true
+      },
+      "Incident": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Eight-character UUID-derived identifier"
+          },
+          "timestamp": {
+            "type": "number"
+          },
+          "timestamp_iso": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "src_ip": {
+            "type": "string"
+          },
+          "dst_ip": {
+            "type": "string"
+          },
+          "attack_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "clean",
+              "attacked",
+              "dropped",
+              "invalid"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "CRITICAL"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "original_val": {
+            "$ref": "#/components/schemas/Frame"
+          },
+          "modified_val": {
+            "$ref": "#/components/schemas/Frame"
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "timestamp_iso",
+          "protocol",
+          "status",
+          "attack_type"
+        ],
+        "additionalProperties": true
+      },
+      "Packet": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "number"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "attack": {
+            "type": "string"
+          },
+          "src": {
+            "type": "string"
+          },
+          "dst": {
+            "type": "string"
+          },
+          "len": {
+            "type": "integer",
+            "description": "Supplied raw payload length; zero on the current desktop ingestion path."
+          }
+        },
+        "additionalProperties": true
+      },
+      "Incidents": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "incidents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Incident"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "total",
+          "incidents"
+        ],
+        "additionalProperties": true
+      },
+      "Packets": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "packets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Packet"
+            }
+          }
+        },
+        "required": [
+          "count",
+          "packets"
+        ],
+        "additionalProperties": true
+      },
+      "Topology": {
+        "type": "object",
+        "description": "Latest callback snapshot, possibly empty. For populated v2 documents see topology-v2.schema.json.",
+        "additionalProperties": true
+      },
+      "AttacksSnapshot": {
+        "type": "object",
+        "description": "Callback-defined object. Desktop currently supplies total_packets, modified_packets, dropped_packets, not full attack configuration.",
+        "additionalProperties": true
+      },
+      "AttackEnable": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Required nonempty type. Engine types: NOISE, RAMP, PULSE, FREQUENCY_OVERRIDE, MAGNITUDE_OVERRIDE, ANGLE_OVERRIDE, REPLAY, DELAY, DROP, SCALE, NONE. The HTTP layer does not validate enum membership."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true,
+            "example": {
+              "noise_std": 5
+            }
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true
+      },
+      "AttackEnableResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "attack_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "attack_type"
+        ],
+        "additionalProperties": true
+      },
+      "AttackDisableResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "additionalProperties": true
+      },
+      "StixBundle": {
+        "type": "object",
+        "description": "Experimental exporter output labeled STIX 2.1. Strict STIX conformance and taxonomy mappings are not verified.",
+        "additionalProperties": true
+      }
+    }
+  }
+}

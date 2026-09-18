@@ -354,8 +354,8 @@ check(engine.stats["dropped_packets"] == 0, "reset_stats zeroes dropped_packets"
 # Scheduled attack window: wait for two frames, modify exactly two frames.
 engine.set_attack(AttackType.SCALE, {"scale_factor": 2.0})
 engine.set_schedule(start_frame=2, duration_frames=2)
-schedule_results = [engine.apply(make_frame(mag=100.0))[1] for _ in range(4)]
-check(schedule_results == [False, True, True, False],
+schedule_results = [engine.apply(make_frame(mag=100.0))[1] for _ in range(5)]
+check(schedule_results == [False, False, True, True, False],
       "Scheduled attack runs only within its frame window")
 engine.set_schedule()
 

@@ -137,8 +137,8 @@ class DNP3DataLink:
             self.src_addr,
         )
 
-        header_crc   = crc16_dnp_bytes(dl_header)
         start_bytes  = struct.pack(">H", DNP3_START)
+        header_crc   = crc16_dnp_bytes(start_bytes + dl_header)
 
         return start_bytes + dl_header + header_crc + user_data_with_crcs
 
@@ -174,7 +174,7 @@ class DNP3DataLink:
             hdr_crc  = struct.unpack_from("<H", raw, 8)[0]
 
             # Verify header CRC
-            if crc16_dnp(raw[2:8]) != hdr_crc:
+            if crc16_dnp(raw[:8]) != hdr_crc:
                 logger.debug("DNP3 header CRC mismatch")
                 return None
 
@@ -182,6 +182,8 @@ class DNP3DataLink:
             data_offset = 10
             user_data   = bytearray()
             user_len    = length - 5   # payload bytes (excl. fixed header)
+            if user_len < 0 or len(raw) != 10 + user_len + 2 * ((user_len + 15) // 16):
+                return None
 
             while len(user_data) < user_len and data_offset < len(raw):
                 block_size = min(16, user_len - len(user_data))

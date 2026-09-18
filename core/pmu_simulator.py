@@ -60,9 +60,16 @@ class PMUSimulator(threading.Thread):
         nom_freq:    float = 50.0,
         nom_voltage: float = 120.0,
         on_frame:    Optional[Callable[[bytes, dict], None]] = None,
+        proto: str = "UDP",
     ):
         super().__init__(daemon=True, name="PMUSimulator")
 
+        self.proto = proto.upper()
+        if self.proto not in ("UDP", "TCP"):
+            raise ValueError("Transport must be UDP or TCP")
+        self.ready = threading.Event()
+        self.last_error = ""
+        self.config_interval = 5.0  # late capture clients also need channel metadata
         self.dst_host    = dst_host
         self.dst_port    = dst_port
         self.idcode      = idcode
@@ -155,68 +162,45 @@ class PMUSimulator(threading.Thread):
     # ── Thread entry point ────────────────────────────────────────────────────
 
     def run(self) -> None:
-        """Main simulation loop — runs in its own thread."""
-        # Create UDP socket
+        """Generate on a cancellable clock; report socket startup failures."""
         try:
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
-        except OSError as exc:
-            logger.error(f"PMUSimulator: cannot create socket: {exc}")
-            self._running = False
-            return
-
-        # Send CFG-2 frame first so the receiver knows the data format
-        try:
-            cfg_frame = self._codec.encode_config_frame(data_rate=self.fps)
-            self._sock.sendto(cfg_frame, (self.dst_host, self.dst_port))
-            logger.info(f"PMUSimulator: sent CFG-2 frame ({len(cfg_frame)} bytes)")
-        except OSError as exc:
-            logger.warning(f"PMUSimulator: could not send CFG-2: {exc}")
-
-        interval = 1.0 / self.fps
-        next_send = time.perf_counter()
-
-        while not self._stop_event.is_set():
-            now = time.perf_counter()
-            if now < next_send:
-                # Precise sleep — sleep in small chunks to stay responsive
-                remaining = next_send - now
-                if remaining > 0.002:
-                    time.sleep(remaining - 0.001)
-                while time.perf_counter() < next_send:
-                    pass  # busy-wait for last sub-ms
-            next_send += interval
-
-            self._frame_count += 1
-            t = time.time()
-
-            # Build phasor data
-            raw_bytes, frame_dict = self._generate_frame(t)
-            self._last_frame = frame_dict
-            self._last_raw   = raw_bytes
-
-            # Send UDP packet
-            try:
-                self._sock.sendto(raw_bytes, (self.dst_host, self.dst_port))
+            kind = socket.SOCK_DGRAM if self.proto == "UDP" else socket.SOCK_STREAM
+            self._sock = socket.socket(socket.AF_INET, kind)
+            self._sock.settimeout(1)
+            self._sock.connect((self.dst_host, self.dst_port))
+            self._sock.sendall(self._codec.encode_config_frame(data_rate=self.fps))
+            next_config = time.monotonic() + self.config_interval
+            self.ready.set()
+            interval = 1.0 / self.fps
+            next_send = time.monotonic()
+            while not self._stop_event.is_set():
+                if self._stop_event.wait(max(0, next_send - time.monotonic())):
+                    break
+                self._frame_count += 1
+                if time.monotonic() >= next_config:
+                    self._sock.sendall(self._codec.encode_config_frame(data_rate=self.fps))
+                    next_config = time.monotonic() + self.config_interval
+                raw, frame = self._generate_frame(time.time())
+                self._sock.sendall(raw)
                 self.packets_sent += 1
-            except OSError as exc:
+                self._last_frame, self._last_raw = frame, raw
+                if self.on_frame:
+                    try:
+                        self.on_frame(raw, frame)
+                    except Exception:
+                        logger.exception("PMU callback failed")
+                next_send = max(next_send + interval, time.monotonic())
+        except (OSError, ValueError) as exc:
+            if not self._stop_event.is_set():
+                self.last_error = str(exc)
                 self.packets_error += 1
-                if self.packets_error % 100 == 1:
-                    logger.warning(f"PMUSimulator: send error: {exc}")
-
-            # Callback for GUI updates
-            if self.on_frame is not None:
-                try:
-                    self.on_frame(raw_bytes, frame_dict)
-                except Exception as exc:
-                    logger.debug(f"PMUSimulator: on_frame callback error: {exc}")
-
-        # Cleanup
-        if self._sock:
-            self._sock.close()
-            self._sock = None
-        self._running = False
-        logger.info(f"PMUSimulator: stopped after {self.packets_sent} packets")
+                logger.error("PMU stopped: %s", exc)
+        finally:
+            self.ready.set()
+            if self._sock:
+                self._sock.close()
+                self._sock = None
+            self._running = False
 
     # ── Frame generation ──────────────────────────────────────────────────────
 
@@ -253,7 +237,7 @@ class PMUSimulator(threading.Thread):
 
         # ROCOF (df/dt) — finite difference approximation
         drift_rate = 0.05 * (TWO_PI / 10.0) * math.cos(TWO_PI * t / 10.0)
-        dfreq = drift_rate + 0.0   # Hz/s
+        dfreq = 0.0 if manual_freq is not None else drift_rate   # Hz/s
 
         # Voltage magnitude (RMS phase-to-neutral)
         base_mag = self.nom_voltage * mag_scale

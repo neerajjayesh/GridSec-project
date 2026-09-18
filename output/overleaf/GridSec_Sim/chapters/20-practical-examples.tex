@@ -1,0 +1,39 @@
+\chapter{Practical examples}\label{practical-examples}
+The complete examples below accompany the installation, data-format, and API guides. Use the copies under \code{docs/examples} in the repository, or copy the companion files into that directory. The Python scripts require the installed project dependencies.
+
+\section*{Save a three-node topology}
+\pdfbookmark[1]{Save a three-node topology}{example-topology}
+This version 2 topology contains one PMU, one PDC, and one Threat Agent assigned to the PMU-to-PDC link. Open \code{docs/examples/topology-v2.json} through the topology workflow in the User guide, then inspect and validate the diagram. Its interception association describes the diagram; it does not establish per-link network routing. Runtime behavior and persistence limits remain those described in the User guide and Data formats chapters.
+
+\Needspace{12\baselineskip}
+\lstinputlisting[title={topology-v2.json}]{examples/topology-v2.json}
+
+\Needspace{12\baselineskip}
+\section*{Transform a frame offline}
+\pdfbookmark[1]{Transform a frame offline}{example-frame}
+Run the script below from the repository root with your configured Python environment. It constructs one 56-byte C37.118 data frame, applies SCALE with a factor of 2.0, rebuilds it, and checks the decoded result. The first phasor magnitude changes from 120.0 to 240.0 V; frequency, timestamp, and the digital sentinel remain unchanged. No network sockets are opened.
+
+\begin{lstlisting}[title={Commands}]
+python docs/examples/inspect_frame.py
+python docs/examples/inspect_frame.py --pcap sample-frame.pcap
+\end{lstlisting}
+The first command reports PASS if its assertions succeed. The optional second command creates a two-record synthetic PCAP and refuses to overwrite an existing file. These records contain generated Ethernet/IP/UDP headers; they are not interface captures.
+
+\Needspace{12\baselineskip}
+\lstinputlisting[title={inspect\_frame.py}]{examples/inspect_frame.py}
+
+\Needspace{12\baselineskip}
+\section*{Inspect the local REST API}
+\pdfbookmark[1]{Inspect the local REST API}{example-api}
+This bounded example records one synthetic attacked packet and starts the API on loopback. It does not start the protocol simulators. Run the first command in one terminal, copy the displayed bearer token, and use it in a second terminal while the example is running. The token is specific to the example server.
+
+\begin{lstlisting}[title={Commands / Windows PowerShell}]
+python docs/examples/serve_api.py --port 18080 --duration 120
+
+# Second terminal: replace PRINTED_TOKEN with the displayed token.
+curl.exe -H "Authorization: Bearer PRINTED_TOKEN" http://127.0.0.1:18080/api/v1/status
+\end{lstlisting}
+On Linux, use curl in place of curl.exe. The status endpoint is available while the simulation remains stopped; remote attack hooks are unset. See the REST API chapter for response fields and other routes. The server exits after 120 seconds, or on Ctrl+C. Disconnect any event-stream clients before shutdown.
+
+\Needspace{12\baselineskip}
+\lstinputlisting[title={serve\_api.py}]{examples/serve_api.py}

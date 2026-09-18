@@ -1,0 +1,168 @@
+\chapter{User guide}\label{chapter-3}
+\Needspace{10\baselineskip}
+\section*{Workspace and editing}
+\pdfbookmark[1]{Workspace and editing}{chapter-3-s1}
+The left panel contains the hierarchical node palette and protocol selection. The center contains the topology canvas; the right panel contains Properties, Attacks, and Integrations. Lower panels show waveforms and packet records. The toolbar provides simulation, file, editing, and zoom controls.
+
+\begin{enumerate}
+\item Drag a palette node onto the canvas, double-click a palette item, or use a toolbar node shortcut.
+\item Drag nodes to arrange them. Select a node for properties; right-click for its configuration menu.
+\item Choose \textbf{Connect}, click source, then destination. \code{\seqsplit{Escape}} cancels an unfinished link.
+\item Select or right-click a link to inspect/change its protocol.
+\item Move a Threat Agent onto a link to record interception visually.
+\item Use \textbf{Delete} mode or select items and press \code{\seqsplit{Delete}}/\code{\seqsplit{Backspace}} to remove them.
+\item Save with \code{\seqsplit{Ctrl+S}}.
+\end{enumerate}
+
+The canvas is a diagram editor. A drawn switch does not create packet-switching behavior, and every link does not launch a network connection.
+
+\Needspace{10\baselineskip}
+\section*{Node palette}
+\pdfbookmark[1]{Node palette}{chapter-3-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Level & \color{white}\bfseries Nodes & \color{white}\bfseries Current meaning \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Level & \color{white}\bfseries Nodes & \color{white}\bfseries Current meaning \\
+\endhead
+\endfoot
+\rowcolor{pale}
+L0 Process & CT/VT Sensor, Circuit Breaker & Diagram assets with sensor/breaker metadata \\
+L1 Bay & PMU, Protection IED, Bay Control Unit & PMU selects the stream; IED/BCU illustrate bay devices \\
+\rowcolor{pale}
+L2 Station & Local PDC, Station Switch, Station HMI, Engineering Workstation, Gateway/RTU & Local PDC selects destination; other nodes retain station metadata \\
+L3 State & State PDC & Regional diagram and uplink indicator \\
+\rowcolor{pale}
+Unassigned & Threat Agent, Virtual Node & Interception annotation and generic device \\
+\end{longtable}
+\endgroup
+
+Breaker/uplink toggles update configuration and visuals; they do not actuate physical devices or connect a regional PDC.
+
+Link defaults are GOOSE for L0-L1; C37.118 for PMU links between L1-L2 and GOOSE for other L1-L2 links; DNP3 for Gateway/RTU links between L2-L3 and C37.118 for other L2-L3 links. Other combinations keep the selected canvas protocol. Explicit link choices override defaults.
+
+\Needspace{10\baselineskip}
+\section*{Validate and run}
+\pdfbookmark[1]{Validate and run}{chapter-3-s3}
+\textbf{Validate} (\code{\seqsplit{Ctrl+Shift+V}}) blocks startup for missing PMU or Local PDC nodes. State PDC does not substitute for Local PDC. Missing direct C37.118 PMU-PDC links, unattached agents, and duplicate PMU ports produce warnings. Run asks whether to continue when warnings exist.
+
+The first PMU sets the proxy listen port. The first Local PDC sets destination IP/port. Desktop runtime uses UDP, 30 frames/s, 50 Hz, and 120 V nominal magnitude regardless of several editable node fields.
+
+Stop before loading another topology, changing endpoints, or selecting a scenario. Ordinary Open does not consistently enforce this, and a scenario can change attack state even when loading its demo is blocked during a run.
+
+\Needspace{10\baselineskip}
+\section*{Guided scenarios}
+\pdfbookmark[1]{Guided scenarios}{chapter-3-s4}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Scenario & \color{white}\bfseries Module & \color{white}\bfseries Preset \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Scenario & \color{white}\bfseries Module & \color{white}\bfseries Preset \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Clean Baseline & Disable current attack & No transformation \\
+Noisy Sensor & \code{\seqsplit{NOISE}} & \code{\seqsplit{noise\_std=5.0}} \\
+\rowcolor{pale}
+GPS Frequency Spoofing & \code{\seqsplit{FREQUENCY\_OVERRIDE}} & \code{\seqsplit{target\_freq=60.0}} \\
+Voltage False Data & \code{\seqsplit{MAGNITUDE\_OVERRIDE}} & \code{\seqsplit{phasor\_idx=0}}, \code{\seqsplit{value=0.0}} \\
+\rowcolor{pale}
+Packet Loss Drill & \code{\seqsplit{DROP}} & \code{\seqsplit{drop\_percent=50.0}} \\
+Replay Drill & \code{\seqsplit{REPLAY}} & \code{\seqsplit{buffer\_size=90}} \\
+\end{longtable}
+\endgroup
+
+Each loads the bundled diagram. GPS Frequency Spoofing changes a measurement field; it does not simulate GPS hardware. Presets are not complete run checkpoints. Reset attack statistics/state and review Schedule before comparing experiments; stop/start does not automatically reset them.
+
+\Needspace{10\baselineskip}
+\section*{Manual attacks}
+\pdfbookmark[1]{Manual attacks}{chapter-3-s5}
+In \textbf{Attacks}, disable the current module, select the desired dropdown entry, adjust parameters, and enable it. Confirm the active module in the panel. Parameter edits are synchronized through the enable/disable action; changing the dropdown alone need not change the engine.
+
+Use the dropdown as the authoritative selector. The top-level Attacks menu currently opens/synchronizes the panel without selecting its requested module. The selected-link scope option does not implement per-link execution.
+
+Enable \textbf{Schedule attack by packet frame} to set Start after and Duration. Zero duration has no scheduled end. Read \hyperref[chapter-6]{Attack scheduling} for exact frame indexing.
+
+\textbf{Reset Stats} clears engine counters and module state, including replay buffers and ramp/pulse counters. It does not clear integration incident history or remove the schedule.
+
+\Needspace{10\baselineskip}
+\section*{Interpret results}
+\pdfbookmark[1]{Interpret results}{chapter-3-s6}
+\Needspace{8\baselineskip}
+\subsection*{Waveforms}
+Plots compare original and modified phase-A magnitude, frequency, and phase-A angle. Each retains 120 samples; the active tab refreshes at 10 Hz. At 30 data frames/s this is approximately four seconds.
+
+The horizontal axis uses local processing time, not the frame timestamp. Dropped and configuration records can reach the plots. A plotted value does not prove delivery, and packet loss need not appear as a gap. Replay retains old frame timestamps but appears at the current display time.
+
+\Needspace{8\baselineskip}
+\subsection*{Packet classifications}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Status & \color{white}\bfseries Meaning \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Status & \color{white}\bfseries Meaning \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{clean}} & Unchanged, filter bypass, inactive schedule, or no content modification \\
+\code{\seqsplit{attacked}} & Engine marked content modified and proxy attempted re-encoding \\
+\rowcolor{pale}
+\code{\seqsplit{dropped}} & Attack selected the frame for non-forwarding \\
+\code{\seqsplit{invalid}} & Parser rejected or did not recognize the frame \\
+\end{longtable}
+\endgroup
+
+Delay preserves bytes and remains \code{\seqsplit{clean}}. Dashboard counters count matching data frames passed to the engine; proxy and incident totals also include other records.
+
+\Needspace{8\baselineskip}
+\subsection*{Exports}
+The Integrations export tab provides JSON and CSV. JSON retains original/modified frame fields; CSV summarizes events. STIX is experimental. PCAP needs an active writer and packet bytes; the current desktop capture path is incomplete. See \hyperref[chapter-9]{Integrations}.
+
+\Needspace{10\baselineskip}
+\section*{Keyboard reference}
+\pdfbookmark[1]{Keyboard reference}{chapter-3-s7}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Action & \color{white}\bfseries Shortcut \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Action & \color{white}\bfseries Shortcut \\
+\endhead
+\endfoot
+\rowcolor{pale}
+New / Open / Save & \code{\seqsplit{Ctrl+N}} / \code{\seqsplit{Ctrl+O}} / \code{\seqsplit{Ctrl+S}} \\
+Run / Stop & \code{\seqsplit{F5}} / \code{\seqsplit{F6}} \\
+\rowcolor{pale}
+Validate & \code{\seqsplit{Ctrl+Shift+V}} \\
+Zoom in / out / fit & \code{\seqsplit{Ctrl+=}} / \code{\seqsplit{Ctrl+-}} / \code{\seqsplit{Ctrl+0}} \\
+\rowcolor{pale}
+Fit with canvas focus & \code{\seqsplit{F}} \\
+Pan & Middle-button drag or hold \code{\seqsplit{Space}} and drag \\
+\rowcolor{pale}
+Zoom around pointer & Mouse wheel \\
+Cancel link / select & \code{\seqsplit{Escape}} \\
+\rowcolor{pale}
+Delete selection & \code{\seqsplit{Delete}} / \code{\seqsplit{Backspace}} \\
+Exit & \code{\seqsplit{Ctrl+Q}} \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Record an experiment}
+\pdfbookmark[1]{Record an experiment}{chapter-3-s8}
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+Record source revision, package versions, topology, actual endpoints, module parameters, schedule, reset procedure, duration, and counters. Export before closing. For receiver tests, record transport/configuration and independent receipt evidence. Noise/drop results vary because the GUI has no random-seed setting.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/main_window.py}{main window} (\code{\seqsplit{gui/main\_window.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/canvas.py}{canvas} (\code{\seqsplit{gui/canvas.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/node_types.py}{nodes} (\code{\seqsplit{gui/node\_types.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/attack_panel.py}{attack panel} (\code{\seqsplit{gui/attack\_panel.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/waveform_viewer.py}{viewer} (\code{\seqsplit{gui/waveform\_viewer.py}}).\par}
+\end{minipage}\par
+

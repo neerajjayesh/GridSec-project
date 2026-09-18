@@ -227,6 +227,7 @@ class C37118Codec:
         #   + analog(4 each) + digital(2 each) + CRC(2)
         self._data_frame_size = (
             14                          # header
+            + 2                         # STAT
             + num_phasors * 8           # each phasor = 2 × float32
             + 4                         # FREQ (float32)
             + 4                         # DFREQ (float32)
@@ -257,7 +258,7 @@ class C37118Codec:
         soc = int(t)
         frac_sec = t - soc
         # FRACSEC: upper byte = leap-second flags (0x00), lower 3 bytes = fraction * 2^24
-        fracsec = int(frac_sec * (1 << 24)) & 0x00FFFFFF
+        fracsec = int(frac_sec * 1_000_000) & 0x00FFFFFF
         return soc, fracsec
 
     # ── DATA frame ────────────────────────────────────────────────────────────
@@ -345,7 +346,7 @@ class C37118Codec:
         C37118DataFrameDict or None
         """
         MIN_HEADER = 14 + 2 + 4 + 4 + 2  # header + STAT + FREQ + DFREQ + CRC
-        if len(raw_bytes) < MIN_HEADER:
+        if len(raw_bytes) != self._data_frame_size:
             return None
 
         # Verify CRC — compare stored CRC vs computed CRC on all preceding bytes
@@ -360,7 +361,7 @@ class C37118Codec:
         sync, framesize, idcode, soc, fracsec = struct.unpack_from(">HHHII", raw_bytes, offset)
         offset += 14
 
-        if sync != SYNC_DATA:
+        if sync != SYNC_DATA or framesize != len(raw_bytes):
             return None
 
         # STAT (2 bytes)
@@ -511,11 +512,17 @@ class C37118Codec:
         return frame_no_crc + crc_bytes(frame_no_crc)
 
     def decode_config_frame(self, raw_bytes: bytes) -> Optional[dict]:
+        try:
+            return self._decode_config_frame(raw_bytes)
+        except (struct.error, ValueError, IndexError):
+            return None
+
+    def _decode_config_frame(self, raw_bytes: bytes) -> Optional[dict]:
         """
         Decode a CFG-2 frame and return a dict with station config info.
         Returns None on CRC error or wrong SYNC.
         """
-        if len(raw_bytes) < 20:
+        if len(raw_bytes) < 24:
             return None
 
         stored_crc   = struct.unpack(">H", raw_bytes[-2:])[0]
@@ -527,7 +534,7 @@ class C37118Codec:
         sync, framesize, idcode, soc, fracsec = struct.unpack_from(">HHHII", raw_bytes, offset)
         offset += 14
 
-        if sync != SYNC_CFG2:
+        if sync != SYNC_CFG2 or framesize != len(raw_bytes):
             return None
 
         time_base = struct.unpack_from(">I", raw_bytes, offset)[0];  offset += 4
@@ -545,6 +552,8 @@ class C37118Codec:
             # Channel names
             ch_names  = []
             total_ch  = phnmr + annmr + dgnmr * 16
+            if offset + total_ch * 16 + (phnmr + annmr + dgnmr) * 4 + 8 > len(raw_bytes):
+                return None
             for _ in range(total_ch):
                 ch_names.append(raw_bytes[offset:offset+16].decode("ascii", errors="replace").strip())
                 offset += 16
@@ -569,6 +578,8 @@ class C37118Codec:
             })
 
         data_rate = struct.unpack_from(">h", raw_bytes, offset)[0]
+        if offset + 4 != len(raw_bytes):
+            return None
 
         return {
             "sync": sync, "framesize": framesize, "idcode": idcode,
@@ -619,7 +630,7 @@ class C37118Codec:
             return None
 
         sync, framesize, idcode, soc, fracsec = struct.unpack_from(">HHHII", raw_bytes, 0)
-        if sync != SYNC_COMMAND:
+        if sync != SYNC_COMMAND or framesize != len(raw_bytes):
             return None
 
         cmd      = struct.unpack_from(">H", raw_bytes, 14)[0]

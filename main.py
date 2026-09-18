@@ -37,15 +37,16 @@ def _check_dependencies() -> bool:
     """Verify all required packages are installed before importing Qt."""
     missing = []
     required = {
-        "PyQt6":      "PyQt6>=6.4.0",
+        "PyQt6.QtWidgets": "PyQt6>=6.4.0",
         "matplotlib": "matplotlib>=3.7.0",
         "numpy":      "numpy>=1.24.0",
     }
     for mod, req in required.items():
         try:
             __import__(mod)
-        except ImportError:
+        except (ImportError, OSError) as exc:
             missing.append(req)
+            logger.error("Cannot load %s: %s", mod, exc)
 
     if missing:
         print("=" * 60)
@@ -58,6 +59,7 @@ def _check_dependencies() -> bool:
         print("  bash install.sh")
         print("  -- or --")
         print("  pip install -r requirements.txt")
+        print("If Windows Application Control blocks Qt, use Start-GridSec.ps1 to run in WSLg.")
         print()
         return False
     return True
@@ -106,14 +108,13 @@ def main() -> int:
     if sys.platform.startswith("linux"):
         display = os.environ.get("DISPLAY", "")
         wayland = os.environ.get("WAYLAND_DISPLAY", "")
-        if not display and not wayland:
-            # Try xcb fallback
-            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-            logger.warning(
+        if not display and not wayland and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            logger.error(
                 "No DISPLAY or WAYLAND_DISPLAY set. "
-                "Set DISPLAY=:0 or use WSLg for GUI output. "
-                "Running in offscreen mode for testing."
+                "Open from a WSLg desktop session. "
+                "For automated tests only, explicitly set QT_QPA_PLATFORM=offscreen."
             )
+            return 1
 
     # Create application
     app = QApplication(sys.argv)

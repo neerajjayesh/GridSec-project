@@ -136,7 +136,11 @@ class DNP3Simulator:
         if self._running:
             return
         self._running       = True
+        self._stop_event = threading.Event()
         self._open_socket()
+        if self._sock is None:
+            self._running = False
+            raise OSError("Could not open DNP3 socket")
         self._sender_thread = threading.Thread(target=self._send_loop,
                                                daemon=True, name="DNP3-Sender")
         self._listen_thread = threading.Thread(target=self._listen_loop,
@@ -147,6 +151,9 @@ class DNP3Simulator:
 
     def stop(self) -> None:
         self._running = False
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
+        self._close_socket()
         if self._sender_thread and self._sender_thread.is_alive():
             self._sender_thread.join(timeout=3.0)
         if self._listen_thread and self._listen_thread.is_alive():
@@ -159,19 +166,13 @@ class DNP3Simulator:
     def _open_socket(self) -> None:
         try:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # Try to bind to the DNP3 port for listener
-            try:
-                self._sock.bind(("0.0.0.0", self._bind_port))
-                logger.info(f"DNP3 listening on UDP {self._bind_port}")
-            except OSError:
-                # Port might be in use — bind to any port for sending only
-                self._sock.bind(("0.0.0.0", 0))
-                logger.info("DNP3: could not bind to 20000, sending from ephemeral port")
+            self._sock.bind(("127.0.0.1", self._bind_port))
+            self._bind_port = self._sock.getsockname()[1]
+            logger.info(f"DNP3 listening on UDP {self._bind_port}")
             self._sock.settimeout(0.5)
         except Exception as e:
             logger.error(f"DNP3 socket error: {e}")
-            self._sock = None
+            self._close_socket()
 
     def _close_socket(self) -> None:
         if self._sock:
@@ -210,7 +211,7 @@ class DNP3Simulator:
             except Exception as exc:
                 logger.debug(f"DNP3 send error: {exc}")
 
-            time.sleep(interval)
+            self._stop_event.wait(interval)
 
     # ── Listener loop ─────────────────────────────────────────────────────────
 

@@ -212,14 +212,14 @@ class ModbusFrame:
     raw_pdu:         bytes    = b""
 
 
-def decode_frame(raw: bytes) -> Optional[ModbusFrame]:
+def decode_frame(raw: bytes, *, is_request: Optional[bool] = None) -> Optional[ModbusFrame]:
     """Decode a complete Modbus/TCP frame (MBAP + PDU)."""
     try:
         if len(raw) < 8:
             return None
 
         tid, pid, length, uid = struct.unpack_from(">HHHB", raw, 0)
-        if pid != MODBUS_PROTOCOL:
+        if pid != MODBUS_PROTOCOL or not 2 <= length <= 254 or len(raw) != 6 + length:
             return None
 
         pdu = raw[7:7 + length - 1]   # length includes uid byte
@@ -240,6 +240,8 @@ def decode_frame(raw: bytes) -> Optional[ModbusFrame]:
         )
 
         if is_except:
+            if len(pdu) != 2:
+                return None
             frame.exception_code = pdu[1] if len(pdu) > 1 else 0
             return frame
 
@@ -255,14 +257,21 @@ def decode_frame(raw: bytes) -> Optional[ModbusFrame]:
                     ]
                 else:
                     # Request: [FC, start_hi, start_lo, count_hi, count_lo]
+                    if len(pdu) != 5:
+                        return None
                     frame.is_request     = True
                     frame.register_start = struct.unpack_from(">H", pdu, 1)[0]
                     frame.register_count = struct.unpack_from(">H", pdu, 3)[0]
 
         elif actual_fc == FC_WRITE_SINGLE_REG:
+            if len(pdu) != 5:
+                return None
+            frame.is_request = is_request is True
             frame.register_start  = struct.unpack_from(">H", pdu, 1)[0]
             frame.register_values = [struct.unpack_from(">H", pdu, 3)[0]]
 
+        if is_request is not None:
+            frame.is_request = is_request
         return frame
 
     except Exception as exc:

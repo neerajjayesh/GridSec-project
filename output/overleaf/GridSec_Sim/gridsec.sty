@@ -1,0 +1,52 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{gridsec}[GridSec Sim documentation style]
+\usepackage{iftex}
+\usepackage[T1]{fontenc}
+\ifPDFTeX\usepackage[utf8]{inputenc}\fi
+\usepackage{helvet}
+\usepackage{textcomp}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[a4paper,left=20mm,right=20mm,top=21mm,bottom=20mm,headheight=14pt,headsep=8mm]{geometry}
+\usepackage[table]{xcolor}
+\definecolor{navy}{HTML}{132C42}
+\definecolor{teal}{HTML}{087F8C}
+\definecolor{ink}{HTML}{263746}
+\definecolor{muted}{HTML}{526A7B}
+\definecolor{pale}{HTML}{EDF4F7}
+\usepackage{array,longtable,booktabs,graphicx,caption}
+\usepackage{enumitem,listings,seqsplit,needspace,titlesec,fancyhdr}
+\usepackage{xurl}
+\usepackage[colorlinks=true,linkcolor=teal,urlcolor=teal,bookmarksnumbered=true]{hyperref}
+\usepackage{bookmark}
+\hypersetup{pdftitle={GridSec Sim - Software Documentation},pdfauthor={GridSec Sim project},pdfsubject={Software documentation},pdfcreationdate={},pdfmoddate={}}
+\ifdefined\pdfinfoomitdate\pdfinfoomitdate=1\fi
+\ifdefined\pdfsuppressptexinfo\pdfsuppressptexinfo=15\fi
+\newcommand{\projectgithub}{https://github.com/neerajjayesh/GridSec-project}
+\newcommand{\code}[1]{{\ttfamily\footnotesize #1}}
+\color{ink}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlength{\emergencystretch}{4em}
+\raggedbottom
+\widowpenalty=10000
+\clubpenalty=10000
+\setlist{leftmargin=1.5em,itemsep=3pt,topsep=4pt,parsep=0pt}
+\setcounter{tocdepth}{0}
+\titleformat{\chapter}[display]{\color{navy}\bfseries}{\color{teal}\small CHAPTER \thechapter}{8pt}{\fontsize{26}{31}\selectfont}
+\titlespacing*{\chapter}{0pt}{0pt}{18pt}
+\titleformat{\section}{\color{navy}\bfseries\large}{}{0pt}{}
+\titleformat{\subsection}{\color{teal}\bfseries\normalsize}{}{0pt}{}
+\titlespacing*{\section}{0pt}{12pt}{6pt}
+\titlespacing*{\subsection}{0pt}{9pt}{4pt}
+\captionsetup{font=small,labelfont=bf,textfont={color=muted},skip=6pt,hypcap=false}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\bfseries\color{navy}GRIDSEC SIM}
+\fancyhead[R]{\footnotesize\color{muted}SOFTWARE DOCUMENTATION}
+\fancyfoot[L]{\scriptsize\color{muted}\href{\projectgithub}{github.com/neerajjayesh/GridSec-project}}
+\fancyfoot[R]{\footnotesize\color{muted}\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyhead[L]{\footnotesize\bfseries\color{navy}GRIDSEC SIM}\fancyhead[R]{\footnotesize\color{muted}SOFTWARE DOCUMENTATION}\fancyfoot[L]{\scriptsize\color{muted}\href{\projectgithub}{github.com/neerajjayesh/GridSec-project}}\fancyfoot[R]{\footnotesize\color{muted}\thepage}\renewcommand{\headrulewidth}{0.3pt}}
+\lstset{basicstyle=\ttfamily\fontsize{8}{10.5}\selectfont,backgroundcolor=\color{pale},frame=single,framerule=0pt,framesep=7pt,xleftmargin=7pt,xrightmargin=7pt,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,upquote=true,showstringspaces=false,aboveskip=10pt,belowskip=10pt,title=\lstname,captionpos=t,numbersep=8pt,tabsize=4}
+\date{}

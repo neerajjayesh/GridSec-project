@@ -1,0 +1,176 @@
+\chapter{Data formats}\label{chapter-10}
+\Needspace{10\baselineskip}
+\section*{Topology JSON version 2}
+\pdfbookmark[1]{Topology JSON version 2}{chapter-10-s1}
+\par\noindent\begin{minipage}{\linewidth}
+New saves contain:
+\begin{lstlisting}[title={JSON}]
+{
+  "format": "GridSecSim",
+  "version": 2,
+  "nodes": [],
+  "links": []
+}
+\end{lstlisting}
+\end{minipage}\par
+See the \hyperref[reference-files]{complete example} and \hyperref[reference-files]{JSON Schema}. The schema describes portable v2 documents for tooling; the application loader does not validate against it or enforce \code{\seqsplit{format}}/\code{\seqsplit{version}}.
+
+\Needspace{8\baselineskip}
+\subsection*{Nodes}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type & \color{white}\bfseries Meaning \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type & \color{white}\bfseries Meaning \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{id}} & String & Stable topology identifier; new nodes use UUID strings; legacy IDs may become numeric strings \\
+\code{\seqsplit{node\_type}} & String & Registered node type \\
+\rowcolor{pale}
+\code{\seqsplit{label}} & String & Display name \\
+\code{\seqsplit{ip}} & String & Configured endpoint/diagram IP \\
+\rowcolor{pale}
+\code{\seqsplit{port}} & Integer & Port metadata or runtime endpoint, depending on node \\
+\code{\seqsplit{proto}} & String & Saved transport, normally UDP/TCP \\
+\rowcolor{pale}
+\code{\seqsplit{level}} & Integer & Diagram level -1 through 3 \\
+\code{\seqsplit{x}}, \code{\seqsplit{y}} & Number & Scene coordinates \\
+\rowcolor{pale}
+Other fields & Varies & Type-specific configuration \\
+\end{longtable}
+\endgroup
+
+Registered type strings: \code{\seqsplit{CT\_VT}}, \code{\seqsplit{BREAKER}}, \code{\seqsplit{PMU}}, \code{\seqsplit{PROTECTION\_IED}}, \code{\seqsplit{BCU}}, \code{\seqsplit{PDC}}, \code{\seqsplit{SWITCH}}, \code{\seqsplit{STATION\_HMI}}, \code{\seqsplit{ENGINEERING\_WS}}, \code{\seqsplit{GATEWAY\_RTU}}, \code{\seqsplit{STATE\_PDC}}, \code{\seqsplit{THREAT\_AGENT}}, \code{\seqsplit{VIRTUAL}}.
+
+Examples of additional fields are PMU \code{\seqsplit{reporting\_rate}}/\code{\seqsplit{idcode}}, PDC \code{\seqsplit{buffer\_timeout}}/\code{\seqsplit{pmu\_input\_count}}, breaker \code{\seqsplit{state}}, switch \code{\seqsplit{port\_count}}, engineering workstation \code{\seqsplit{high\_risk}}, gateway \code{\seqsplit{protocol}}, and State PDC \code{\seqsplit{regional\_uplink\_connected}}.
+
+Threat Agents may contain \code{\seqsplit{active}}, \code{\seqsplit{attack\_type}}, \code{\seqsplit{attack\_params}}, and \code{\seqsplit{attack\_schedule}} (\code{\seqsplit{start\_frame}}, \code{\seqsplit{duration\_frames}}). \code{\seqsplit{intercepted\_link}} is an in-process object ID that can appear in metadata; treat the link's \code{\seqsplit{threat\_agent\_ids}} as the portable relationship. \code{\seqsplit{running}}/\code{\seqsplit{active}} are visual state snapshots, not instructions to launch a process on load.
+
+\Needspace{8\baselineskip}
+\subsection*{Links}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type & \color{white}\bfseries Meaning \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type & \color{white}\bfseries Meaning \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{src\_id}}, \code{\seqsplit{dst\_id}} & String & References to node IDs \\
+\code{\seqsplit{protocol}} & String & C37.118, DNP3, Modbus, IEC104, or GOOSE \\
+\rowcolor{pale}
+\code{\seqsplit{threat\_agent\_ids}} & Array of strings & Attached Threat Agent node IDs \\
+\end{longtable}
+\endgroup
+
+IDs must be unique, endpoints must exist, and attachment references should identify Threat Agents. JSON Schema cannot by itself enforce those cross-references; a semantic check is also required.
+
+\Needspace{8\baselineskip}
+\subsection*{Legacy compatibility}
+Legacy files may omit format/version and identify nodes with \code{\seqsplit{\_id}}, often integers. The loader accepts \code{\seqsplit{id}} or \code{\seqsplit{\_id}}, maps both original and string representations, restores resolvable links, then restores Threat Agent attachments. The bundled demo is a legacy-shaped file with attachment references; saving through the canvas converts it to v2.
+
+Missing endpoints cause a link to be skipped. Missing attachment references are ignored. Duplicate IDs can redirect references to the last mapped node. Loading clears the existing canvas first, so malformed input can leave an empty or partial diagram. Save current work before opening unfamiliar files.
+
+\Needspace{10\baselineskip}
+\section*{Decoded C37.118 data}
+\pdfbookmark[1]{Decoded C37.118 data}{chapter-10-s2}
+\code{\seqsplit{parse\_frame()}} returns a dict or \code{\seqsplit{None}}. A decoded DATA dictionary includes:
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Representation \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Representation \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{frame\_type}} & \code{\seqsplit{data}} \\
+\code{\seqsplit{sync}}, \code{\seqsplit{framesize}}, \code{\seqsplit{idcode}} & Integer header values \\
+\rowcolor{pale}
+\code{\seqsplit{soc}}, \code{\seqsplit{fracsec}} & Integer wire timestamp fields \\
+\code{\seqsplit{stat}} & Integer status word \\
+\rowcolor{pale}
+\code{\seqsplit{phasors}} & List of magnitude/angle pairs; angles in radians \\
+\code{\seqsplit{freq}}, \code{\seqsplit{dfreq}} & Hz and Hz/s \\
+\rowcolor{pale}
+\code{\seqsplit{analog}} & List of float values \\
+\code{\seqsplit{digital}} & List of unsigned 16-bit words \\
+\rowcolor{pale}
+\code{\seqsplit{crc}} & Parsed CRC integer \\
+\code{\seqsplit{raw}} & Original Python \code{\seqsplit{bytes}} \\
+\end{longtable}
+\endgroup
+
+Other parser classifications include \code{\seqsplit{cfg2}}, \code{\seqsplit{command}}, \code{\seqsplit{data\_invalid}}, \code{\seqsplit{cfg\_invalid}}, \code{\seqsplit{cmd\_invalid}}, and \code{\seqsplit{unknown}}; configuration detection also recognizes cfg1/cfg3. \code{\seqsplit{rebuild\_frame()}} encodes data using the active codec and otherwise returns the stored \code{\seqsplit{raw}} bytes.
+
+\Needspace{10\baselineskip}
+\section*{PacketRecord}
+\pdfbookmark[1]{PacketRecord}{chapter-10-s3}
+The proxy's internal record has exactly these slots: \code{\seqsplit{timestamp}}, \code{\seqsplit{original}}, \code{\seqsplit{modified}}, \code{\seqsplit{status}}, \code{\seqsplit{attack\_type}}, \code{\seqsplit{description}}, \code{\seqsplit{src\_addr}}.
+
+\code{\seqsplit{timestamp}} is local wall time when proxy processing begins; \code{\seqsplit{src\_addr}} is the received socket address. There is no \code{\seqsplit{raw\_bytes}} slot. Raw data can exist inside the frame dictionary's \code{\seqsplit{raw}}, but the current GUI does not use that as capture input. Modified dictionaries can still contain original raw bytes, so blindly using that field would not provide the rebuilt wire output.
+
+\Needspace{10\baselineskip}
+\section*{Incident format}
+\pdfbookmark[1]{Incident format}{chapter-10-s4}
+\code{\seqsplit{Incident.as\_dict()}} exports:
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type/meaning \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Field & \color{white}\bfseries Type/meaning \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{id}} & Eight-character UUID-derived string; not a durable globally unique event cursor \\
+\code{\seqsplit{timestamp}} & Epoch seconds as float \\
+\rowcolor{pale}
+\code{\seqsplit{timestamp\_iso}} & UTC ISO-formatted timestamp \\
+\code{\seqsplit{protocol}} & Protocol label, e.g. C37.118 \\
+\rowcolor{pale}
+\code{\seqsplit{src\_ip}}, \code{\seqsplit{dst\_ip}} & Recorded addresses \\
+\code{\seqsplit{attack\_type}} & Module name or NONE for unclassified clean records \\
+\rowcolor{pale}
+\code{\seqsplit{status}} & clean / attacked / dropped / invalid \\
+\code{\seqsplit{severity}} & INFO / LOW / MEDIUM / HIGH; CRITICAL exists as a model value \\
+\rowcolor{pale}
+\code{\seqsplit{description}} & Generated event description \\
+\code{\seqsplit{original\_val}}, \code{\seqsplit{modified\_val}} & Serialized frame dictionaries \\
+\end{longtable}
+\endgroup
+
+The desktop currently supplies synthetic addresses \code{\seqsplit{10.0.0.1}} and \code{\seqsplit{10.0.0.2}}, source port 49000, destination port 4712, and protocol C37.118 to the integration manager, regardless of actual sockets. Do not use these fields as network-capture evidence.
+
+Frame serialization stringifies values such as Python bytes; it does not define a base64 binary contract. Use actual PCAP bytes for packet reconstruction.
+
+\Needspace{10\baselineskip}
+\section*{Export containers}
+\pdfbookmark[1]{Export containers}{chapter-10-s5}
+JSON export has \code{\seqsplit{session\_id}}, \code{\seqsplit{exported\_at}}, and \code{\seqsplit{incidents}}. CSV column order is:
+
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={TEXT}]
+id,timestamp_iso,protocol,src_ip,dst_ip,attack_type,status,severity,description
+\end{lstlisting}
+\end{minipage}\par
+Recent packet API entries contain \code{\seqsplit{timestamp}}, \code{\seqsplit{protocol}}, \code{\seqsplit{status}}, \code{\seqsplit{attack}}, \code{\seqsplit{src}}, \code{\seqsplit{dst}}, and \code{\seqsplit{len}}. \code{\seqsplit{src}}/\code{\seqsplit{dst}} are address-and-port strings; \code{\seqsplit{len}} is the length of supplied raw bytes, currently zero for the GUI path.
+
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+The REST incident response adds \code{\seqsplit{count}} and \code{\seqsplit{total}}; packet response adds \code{\seqsplit{count}}. Exported STIX and PCAP semantics are described in \hyperref[chapter-9]{Integrations}.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/canvas.py}{canvas persistence} (\code{\seqsplit{gui/canvas.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/node_types.py}{node configurations} (\code{\seqsplit{gui/node\_types.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/packet_parser.py}{parser} (\code{\seqsplit{core/packet\_parser.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pdc_proxy.py}{PacketRecord} (\code{\seqsplit{core/pdc\_proxy.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{incidents} (\code{\seqsplit{core/integration\_manager.py}}).\par}
+\end{minipage}\par
+

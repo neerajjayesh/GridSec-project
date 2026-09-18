@@ -38,6 +38,13 @@ github_push.sh
 *.pcap
 *.pcapng
 
+# Local scratch/build previews and secrets
+/tmp/
+.env
+.env.*
+!.env.example
+!.env.sample
+
 # GridSec exports
 gridsec_*.json
 gridsec_*.csv

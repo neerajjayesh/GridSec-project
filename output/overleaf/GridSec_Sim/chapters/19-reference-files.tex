@@ -1,0 +1,36 @@
+\chapter{Reference files}\label{reference-files}
+The five companion files listed below are included in the Overleaf project. The distributed PDF also includes them as file attachments. Python examples require the project source and its documented environment; they are not standalone binaries.
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Companion file & \color{white}\bfseries Purpose \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Companion file & \color{white}\bfseries Purpose \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{reference/openapi.json}} & Machine-readable HTTP interface \\
+\code{\seqsplit{reference/topology-v2.schema.json}} & Portable topology v2 schema \\
+\rowcolor{pale}
+\code{\seqsplit{examples/topology-v2.json}} & Three-node MitM topology \\
+\code{\seqsplit{examples/inspect\_frame.py}} & Offline frame and sample-PCAP example \\
+\rowcolor{pale}
+\code{\seqsplit{examples/serve\_api.py}} & Loopback API example \\
+\end{longtable}
+\endgroup
+
+\section*{Using the reference files}
+The OpenAPI and JSON Schema files describe interfaces; they do not change or validate runtime behavior automatically. They are subject to the same documented limitations as the human-readable references.
+
+Copy the Python examples to \code{docs/examples/} in a project checkout before running them. They locate imports relative to their own paths. The topology JSON can be opened through the desktop topology workflow.
+
+\section*{Project repository}
+\url{https://github.com/neerajjayesh/GridSec-project}
+
+The project source contains the desktop application, protocol codecs, simulation engine, and integration components. This documentation describes their implemented behavior, including the boundaries recorded in Known limitations.
+
+\section*{Document navigation}
+Internal guide links resolve to chapters in this manual. Links to schema and example artifacts lead to this chapter. Application source references point to repository files on GitHub. The companion files are also supplied directly in the Overleaf package.

@@ -1,0 +1,16 @@
+flowchart TD
+    Raw[Received bytes] --> Parse[Parse frame]
+    Parse --> Valid{Recognized and decoded?}
+    Valid -->|No| Invalid[Invalid record; no output]
+    Valid -->|Yes| Data{Data frame?}
+    Data -->|No| Pass[Forward original bytes]
+    Data -->|Yes| Filter{Filter matches?}
+    Filter -->|No| Pass
+    Filter -->|Yes| Engine[Apply selected attack and schedule]
+    Engine --> Drop{Dropped?}
+    Drop -->|Yes| DropRecord[Dropped record; no output]
+    Drop -->|No| Changed{Modified?}
+    Changed -->|No| Pass
+    Changed -->|Yes| Encode[Rebuild data and CRC]
+    Encode --> Send[Attempt forwarding]
+    Pass --> Send

@@ -1,0 +1,102 @@
+\chapter{Product overview}\label{chapter-1}
+\textbf{Project GitHub:} \href{https://github.com/neerajjayesh/GridSec-project}{neerajjayesh/GridSec-project}
+
+\Needspace{10\baselineskip}
+\section*{Purpose and users}
+\pdfbookmark[1]{Purpose and users}{chapter-1-s1}
+GridSec Sim is a visual laboratory for studying how changes to measurement traffic affect data visible to a downstream receiver. Operators create a substation diagram, start a synthetic PMU, select a stream modification, and inspect resulting measurements and packet classifications.
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries User & \color{white}\bfseries Typical work \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries User & \color{white}\bfseries Typical work \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Instructor or student & Demonstrate clean traffic, false measurements, stale data, delay, and loss \\
+Security researcher & Inspect controlled protocol changes and collect synthetic experiment records \\
+\rowcolor{pale}
+Integration developer & Exercise a laboratory receiver or prototype an export consumer \\
+Contributor & Extend codecs, improve runtime wiring, and maintain the desktop application \\
+\end{longtable}
+\endgroup
+
+The project focuses on measurement communication. It does not solve electrical power flow, model a physical grid, or implement a complete substation control system. A frequency override changes the reported field; it does not change a physical generator model.
+
+\Needspace{10\baselineskip}
+\section*{Functional scope}
+\pdfbookmark[1]{Functional scope}{chapter-1-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Area & \color{white}\bfseries Current implementation \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Area & \color{white}\bfseries Current implementation \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Desktop & PyQt6 canvas, property editor, attack panel, plots, packet log, and integration tabs \\
+Topologies & Thirteen node types, four levels, protocol links, Threat Agent attachments, JSON persistence \\
+\rowcolor{pale}
+Validation & Missing PMU/Local PDC errors; warnings for missing C37.118 links, unattached agents, and duplicate PMU ports \\
+Main runtime & One UDP PMU and proxy, using the first PMU and Local PDC \\
+\rowcolor{pale}
+Attacks & Ten selectable modules; one active module at a time; optional frame window \\
+Visualization & Original/modified phase-A magnitude, frequency, and phase-A angle \\
+\rowcolor{pale}
+Auxiliary traffic & DNP3/UDP, Modbus/TCP, and a GOOSE raw Ethernet publisher attempt \\
+IEC104 & Frame helpers and diagram labels; no desktop live simulator \\
+\rowcolor{pale}
+Records & In-memory incidents, recent packet metadata, JSON/CSV, experimental STIX \\
+External tooling & Core PCAP, Syslog/CEF, and REST components with desktop wiring gaps \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Experiment outcomes}
+\pdfbookmark[1]{Experiment outcomes}{chapter-1-s3}
+A false-data experiment establishes a clean baseline, selects a known transformation, observes the modified proxy record, and verifies receipt independently when downstream delivery matters. For example, \code{\seqsplit{SCALE}} with \code{\seqsplit{scale\_factor=2.0}} changes a reported 120 V magnitude to 240 V.
+
+The plot observes proxy processing. It does not prove that a remote PDC received, accepted, or acted on the outgoing frame. Loss and latency need receiver-side or network evidence in addition to plots.
+
+\Needspace{10\baselineskip}
+\section*{Deployment and quality characteristics}
+\pdfbookmark[1]{Deployment and quality characteristics}{chapter-1-s4}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Characteristic & \color{white}\bfseries Current position \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Characteristic & \color{white}\bfseries Current position \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Execution & One local Python process, worker threads, Qt event loop \\
+Storage & Topology/export files and bounded memory; no database \\
+\rowcolor{pale}
+Distribution & Source checkout and Python requirements; no packaged executable \\
+Reproducibility & Minimum dependency versions; no lockfile or GUI seed setting \\
+\rowcolor{pale}
+Capacity & One desktop C37.118 stream; no measured production throughput envelope \\
+Availability & No supervisor, cluster, failover, or durable event queue \\
+\rowcolor{pale}
+Identity & Optional bearer API token; no accounts or roles \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Development direction}
+\pdfbookmark[1]{Development direction}{chapter-1-s5}
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+Identified needs include integration lifecycle wiring, packet-byte capture, codec ownership, and explicit UI-to-runtime configuration mapping. Per-link execution requires separate stream contexts, codec and attack state isolation, and concurrency-safe integration handling. These are engineering needs, not a committed roadmap.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/main_window.py}{main window} (\code{\seqsplit{gui/main\_window.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/attack_engine.py}{attack engine} (\code{\seqsplit{core/attack\_engine.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{integration manager} (\code{\seqsplit{core/integration\_manager.py}}).\par}
+\end{minipage}\par
+

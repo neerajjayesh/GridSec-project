@@ -29,6 +29,8 @@ import math
 import random
 import time
 import logging
+import threading
+from functools import wraps
 from collections import deque
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
@@ -117,7 +119,7 @@ class BaseAttack:
         return self._apply_attack(frame_dict)
 
     def _apply_attack(self, frame_dict: dict) -> AttackResult:
-        raise NotImplementedError
+        return AttackResult(frame_dict)
 
     @staticmethod
     def _copy(frame_dict: dict) -> dict:
@@ -607,6 +609,14 @@ ATTACK_CLASSES: Dict[AttackType, type] = {
 # Attack Engine
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _synchronized(fn):
+    @wraps(fn)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return locked
+
+
 class AttackEngine:
     """
     Manages the active attack and applies it to each packet.
@@ -617,6 +627,8 @@ class AttackEngine:
     """
 
     def __init__(self):
+        self._lock = threading.RLock()
+        self.cancel_event = threading.Event()
         # Instantiate all attack objects
         self._attacks: Dict[AttackType, BaseAttack] = {
             t: cls() for t, cls in ATTACK_CLASSES.items()
@@ -637,59 +649,113 @@ class AttackEngine:
 
     # ── Attack selection ──────────────────────────────────────────────────────
 
+    @_synchronized
     def set_attack(self, attack_type: AttackType, params: Optional[dict] = None) -> None:
         """
         Select the active attack type and optionally set its parameters.
         Also enables the selected attack (and disables the previous one).
         """
-        # Disable old
+        attack_type = AttackType(attack_type)
+        if params is not None:
+            self.set_params_for(attack_type, params)
         old = self._attacks.get(self._active_type)
         if old:
             old.disable()
-
         self._active_type = attack_type
-
-        # Enable new
         new = self._attacks.get(attack_type)
         if new:
+            new.reset()
             new.enable()
-            if params:
-                new.set_params(params)
 
         logger.info(f"AttackEngine: switched to {attack_type.value}")
 
+    @_synchronized
     def get_attack(self, attack_type: Optional[AttackType] = None) -> BaseAttack:
         """Return the attack instance for the given type (or active type)."""
         t = attack_type or self._active_type
         return self._attacks.get(t, self._none_attack)
 
     @property
+    @_synchronized
     def active_attack(self) -> BaseAttack:
         return self._attacks.get(self._active_type, self._none_attack)
 
     @property
+    @_synchronized
     def active_type(self) -> AttackType:
         return self._active_type
 
-    def enable(self)  -> None: self.active_attack.enable()
+    @_synchronized
+    def enable(self) -> None:
+        if self._active_type != AttackType.NONE:
+            self.active_attack.enable()
+    @_synchronized
     def disable(self) -> None: self.active_attack.disable()
 
     @property
+    @_synchronized
     def is_enabled(self) -> bool:
         return self.active_attack.enabled
 
+    @_synchronized
     def set_params(self, params: dict) -> None:
-        self.active_attack.set_params(params)
+        self.set_params_for(self._active_type, params)
 
+    @_synchronized
+    def set_params_for(self, attack_type: AttackType, params: dict) -> None:
+        """Validate the whole update before mutating any live attack."""
+        if not isinstance(params, dict):
+            raise ValueError("Attack parameters must be an object")
+        attack = self.get_attack(AttackType(attack_type))
+        defaults = attack.get_params()
+        for key, value in params.items():
+            if key not in defaults:
+                raise ValueError(f"Unknown parameter: {key}")
+            if key in ("recording", "buffered"):
+                continue  # runtime information in older saved topologies
+            expected = defaults[key]
+            if isinstance(expected, bool):
+                if not isinstance(value, bool):
+                    raise ValueError(f"{key} must be boolean")
+            elif isinstance(expected, (int, float)):
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{key} must be numeric")
+                if not math.isfinite(value) or abs(value) > 1e12:
+                    raise ValueError(f"{key} must be finite and within +/-1e12")
+                if isinstance(expected, int) and int(value) != value:
+                    raise ValueError(f"{key} must be an integer")
+                if key in ("noise_std", "freq_std", "delay_ms", "drop_rate") and value < 0:
+                    raise ValueError(f"{key} cannot be negative")
+                if key in ("buffer_size", "interval", "duration_frames") and not 1 <= value <= 10000:
+                    raise ValueError(f"{key} must be between 1 and 10000")
+                if key == "phasor_idx" and not -1 <= value <= 65535:
+                    raise ValueError("phasor_idx is out of range")
+            elif not isinstance(value, str):
+                raise ValueError(f"{key} must be a string")
+        if params.get("target", "magnitude") not in ("magnitude", "frequency"):
+            raise ValueError("target must be magnitude or frequency")
+        if params.get("direction", "up") not in ("up", "down"):
+            raise ValueError("direction must be up or down")
+        attack.set_params(params)
+
+    @_synchronized
     def get_params(self) -> dict:
         return self.active_attack.get_params()
 
+    @_synchronized
+    def snapshot(self) -> dict:
+        return {"type": self.active_type.value, "enabled": self.is_enabled,
+                "params": self.get_params(), "schedule": self.schedule,
+                "stats": dict(self.stats)}
+
+    @_synchronized
     def set_schedule(self, start_frame: int = 0, duration_frames: int = 0) -> None:
         """Arm the active attack for a packet-frame window."""
         self._schedule_start_frame = max(0, int(start_frame))
         self._schedule_duration_frames = max(0, int(duration_frames))
 
     @property
+    @_synchronized
     def schedule(self) -> dict:
         return {
             "start_frame": self._schedule_start_frame,
@@ -697,17 +763,21 @@ class AttackEngine:
         }
 
     @property
+    @_synchronized
     def is_scheduled_active(self) -> bool:
-        frame = self.stats["total_packets"]
+        frame = self.stats["total_packets"] - 1
         if frame < self._schedule_start_frame:
             return False
         return (self._schedule_duration_frames == 0 or
                 frame < self._schedule_start_frame + self._schedule_duration_frames)
 
+    @_synchronized
     def reset_stats(self) -> None:
         self.stats = {"total_packets": 0, "modified_packets": 0, "dropped_packets": 0}
 
+    @_synchronized
     def reset_attack_state(self) -> None:
+        self.cancel_event.clear()
         for attack in self._attacks.values():
             attack.reset()
 
@@ -725,21 +795,34 @@ class AttackEngine:
         -------
         (modified_frame_dict, was_modified, was_dropped)
         """
-        self.stats["total_packets"] += 1
-
-        if self.is_enabled and not self.is_scheduled_active:
-            result = AttackResult(frame_dict, False, False, self.active_type,
-                                  "Attack schedule inactive")
-        else:
-            result = self.active_attack.apply(frame_dict)
-
-        if result.was_dropped:
-            self.stats["dropped_packets"] += 1
-        elif result.was_modified:
-            self.stats["modified_packets"] += 1
-
+        result = self.apply_result(frame_dict)
         return result.frame_dict, result.was_modified, result.was_dropped
 
+    def apply_result(self, frame_dict: dict) -> AttackResult:
+        delay = 0.0
+        with self._lock:
+            if frame_dict.get("frame_type") != "data":
+                return AttackResult(frame_dict)
+            self.stats["total_packets"] += 1
+            if not self.is_enabled or not self.is_scheduled_active:
+                result = AttackResult(frame_dict)
+            elif self.active_type == AttackType.DELAY:
+                delay = self.active_attack.delay_ms / 1000.0
+                result = AttackResult(frame_dict, False, False, AttackType.DELAY,
+                                      f"DELAY {delay * 1000:.1f} ms")
+            else:
+                result = self.active_attack.apply(frame_dict)
+            if result.was_dropped:
+                self.stats["dropped_packets"] += 1
+            elif result.was_modified:
+                self.stats["modified_packets"] += 1
+        # Do not hold the engine lock while delaying; Stop/Disable stay responsive.
+        if delay:
+            self.cancel_event.wait(delay)
+        result.was_delayed = delay > 0
+        return result
+
+    @_synchronized
     def all_attacks_info(self) -> List[dict]:
         """Return a list of info dicts for all available attacks (for UI)."""
         info = []

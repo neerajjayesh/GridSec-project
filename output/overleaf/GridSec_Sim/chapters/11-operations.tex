@@ -1,0 +1,166 @@
+\chapter{Operations and troubleshooting}\label{chapter-11}
+\Needspace{10\baselineskip}
+\section*{Deployment profile}
+\pdfbookmark[1]{Deployment profile}{chapter-11-s1}
+Run as a desktop laboratory application from a known checkout and dedicated Python environment. Keep experiment files in a writable output directory and preserve source revision/package versions with results. No service installer, container, database migration, automatic updater, or production deployment procedure is supplied.
+
+Starting Run attempts auxiliary services even for a small C37.118-only diagram. Use an isolated lab environment whose network interfaces and receiver endpoints you understand. Basic C37.118 experiments can run without raw-socket privileges.
+
+\Needspace{10\baselineskip}
+\section*{Network footprint}
+\pdfbookmark[1]{Network footprint}{chapter-11-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Component & \color{white}\bfseries Default desktop behavior \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Component & \color{white}\bfseries Default desktop behavior \\
+\endhead
+\endfoot
+\rowcolor{pale}
+PMU & UDP from an ephemeral source port to loopback/first PMU port, normally 4712 \\
+C37.118 proxy & Binds \code{\seqsplit{127.0.0.1:4712}}; forwards to first Local PDC, normally \code{\seqsplit{127.0.0.1:4713}} \\
+\rowcolor{pale}
+Local PDC node & No listener created; represents an external destination \\
+DNP3 & UDP bind \code{\seqsplit{0.0.0.0:20000}}, fallback ephemeral bind; target loopback port 20000 \\
+\rowcolor{pale}
+Modbus & TCP server loopback port 502, fallback 10502; local polling master \\
+GOOSE & Attempts raw Ethernet publishing on autodetected Linux interface \\
+\rowcolor{pale}
+REST & Not automatically started by Run; core default loopback:8080, manager configuration default all interfaces:8080 \\
+Syslog & Sends to configured collector only when configured/started; default loopback:514 \\
+\end{longtable}
+\endgroup
+
+Link labels and node ports for IEDs, switches, or State PDC do not imply additional listeners. Avoid using the same local endpoint for proxy input and forwarding output, which can cause a feedback loop.
+
+\Needspace{10\baselineskip}
+\section*{Run procedure}
+\pdfbookmark[1]{Run procedure}{chapter-11-s3}
+\begin{enumerate}
+\item Save current topology and record experiment settings.
+\item Verify the selected input/output ports are free or belong to your intended receiver.
+\item Start the receiver first if delivery validation matters.
+\item Load/validate the topology while stopped.
+\item Reset attack statistics and module state; review schedule and parameters.
+\item Start a clean baseline and confirm proxy activity and receiver receipt.
+\item Apply the intended change; collect application and receiver evidence.
+\item Stop, export retained records, and save the final topology/settings.
+\item Shut down any separately started API/capture/collector resources explicitly.
+\end{enumerate}
+
+There is no autosave or automatic incident recovery. A topology is not a complete session backup. Keep JSON incident exports for detailed values; CSV is a summary and STIX is sampled.
+
+\Needspace{10\baselineskip}
+\section*{Capacity and retention}
+\pdfbookmark[1]{Capacity and retention}{chapter-11-s4}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Resource & \color{white}\bfseries Bound/default \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Resource & \color{white}\bfseries Bound/default \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Desktop C37.118 streams & 1 \\
+PMU rate & 30 data frames/s from GUI; constructor accepts 1-120 \\
+\rowcolor{pale}
+Active attack modules & 1 \\
+Waveform buffer & 120 samples per channel \\
+\rowcolor{pale}
+Plot refresh & 10 Hz for active plot \\
+GUI log target & 500 lines, with batched trimming \\
+\rowcolor{pale}
+Incidents & Last 10,000 records \\
+Recent packet summaries & Last 1,000 records \\
+\rowcolor{pale}
+SSE subscriber queue & 100 pending messages \\
+\end{longtable}
+\endgroup
+
+At 30 records/s, the incident window is approximately 5.6 minutes and packet-summary window approximately 33 seconds. This is arithmetic from configured bounds, not a throughput benchmark. Extra records, delay, and loss change effective durations. There is no capture rotation or disk-quota manager.
+
+\Needspace{10\baselineskip}
+\section*{Logs and diagnostics}
+\pdfbookmark[1]{Logs and diagnostics}{chapter-11-s5}
+\code{\seqsplit{GRIDSEC\_LOG\_LEVEL=DEBUG}} increases console logging. No rotating log file is configured. API startup logs the bearer token; redact it before sharing diagnostics.
+
+\par\noindent\begin{minipage}{\linewidth}
+PowerShell:
+\begin{lstlisting}[title={POWERSHELL}]
+$env:GRIDSEC_LOG_LEVEL = 'DEBUG'
+.\.venv\Scripts\python.exe main.py --demo *> gridsec-session.log
+Get-NetUDPEndpoint | Where-Object LocalPort -in 4712,4713,20000
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -in 502,10502,8080,18080
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}
+Linux:
+\begin{lstlisting}[title={BASH}]
+GRIDSEC_LOG_LEVEL=DEBUG .venv/bin/python main.py --demo > gridsec-session.log 2>&1
+ss -lunp
+ss -ltnp
+\end{lstlisting}
+\end{minipage}\par
+Run socket inspection from another terminal while the application is active. These commands inspect listeners; they do not confirm application-level measurement acceptance.
+
+\Needspace{10\baselineskip}
+\section*{Troubleshooting}
+\pdfbookmark[1]{Troubleshooting}{chapter-11-s6}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Symptom & \color{white}\bfseries Likely explanation and action \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Symptom & \color{white}\bfseries Likely explanation and action \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{No}\ \seqsplit{module}\ \seqsplit{named}\ \seqsplit{PyQt6}} & Wrong interpreter or incomplete install. Use the environment's Python and reinstall requirements there. \\
+No visible Linux/WSL window & Missing display environment caused offscreen fallback. Confirm WSLg/display server and launch in a display-enabled session. \\
+\rowcolor{pale}
+Qt XCB/plugin error & Missing/incompatible display libraries or environment. Verify distribution Qt dependencies and test offscreen separately. \\
+Port already in use & Inspect the owner. Change the first PMU port or intended receiver port while stopped, then restart. \\
+\rowcolor{pale}
+Packets plot but receiver sees nothing & Local PDC node is not a receiver. Check real listener, UDP/TCP match, destination, firewall/interface, and startup CFG-2 receipt. \\
+Modified frames rejected downstream & Check codec channel counts and digital-word mismatch GS-08. Inspect outgoing bytes/configuration compatibility. \\
+\rowcolor{pale}
+No attack effect & Confirm dropdown selection, enable toggle, schedule counter/window, and module-specific target. Reset state before a controlled repeat. \\
+Replay initially looks clean & Buffer is still recording N frames; modifications begin afterward. \\
+\rowcolor{pale}
+Drop does not make plot gaps & Plot consumes dropped records. Use dropped counter and receiver capture. \\
+Delay looks clean & Expected classification; inspect elapsed delivery timing and throughput. \\
+\rowcolor{pale}
+Capture/REST/Syslog button raises AttributeError & Missing convenience methods, GS-13. Use documented core interfaces; do not run patch helpers blindly. \\
+PCAP empty or packet lengths zero & GUI lacks raw-byte delivery, GS-14; a writer alone is insufficient. \\
+\rowcolor{pale}
+API protocol query empty & \code{\seqsplit{proto}}/\code{\seqsplit{protocol}} mismatch. Omit query filter and filter client-side. \\
+API stops responding after SSE starts & Serial HTTP handler is occupied. Disconnect SSE and use polling. \\
+\rowcolor{pale}
+API enable returns false & No attack hook installed. Desktop does not connect one. \\
+API says simulation still running after Stop & Stale manager flag, GS-21. Check desktop/proxy state directly. \\
+\rowcolor{pale}
+GOOSE fails on Windows & Linux socket family unavailable; use Linux lab for live Layer 2 publishing. \\
+Modbus appears on 10502 & Port 502 bind failed and server used its high-port fallback. \\
+\rowcolor{pale}
+Long stop/restart or slow stream & Delay sleeps on proxy worker; workers stop asynchronously. Wait for termination before reusing ports. \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Recovery and change management}
+\pdfbookmark[1]{Recovery and change management}{chapter-11-s7}
+Export records before closing whenever possible. After a crash, restart from a saved topology, reapply attack parameters/schedule, and begin a fresh baseline. In-memory incidents and module buffers are not recoverable.
+
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+For an update, preserve topology/export files and environment version records, stop the app, update the source in a controlled checkout, install requirements into a fresh environment, and run regression plus a relevant smoke check. To roll back, use the previous checkout/environment and revalidate the topology. Do not use workstation-specific deployment scripts as a release system.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/main.py}{entry} (\code{\seqsplit{main.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/main_window.py}{runtime} (\code{\seqsplit{gui/main\_window.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{manager bounds} (\code{\seqsplit{core/integration\_manager.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/dnp3_simulator.py}{DNP3} (\code{\seqsplit{core/dnp3\_simulator.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/modbus_simulator.py}{Modbus} (\code{\seqsplit{core/modbus\_simulator.py}}).\par}
+\end{minipage}\par
+

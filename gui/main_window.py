@@ -31,11 +31,13 @@ import os
 import sys
 import threading
 import time
+import ipaddress
+from html import escape
 from pathlib import Path
 from typing import Optional, List
 
 from PyQt6.QtCore import (
-    Qt, QTimer, pyqtSignal, QObject, QThread, QMutex
+    Qt, QTimer, pyqtSignal, QObject, QThread, QMutex, QSaveFile, QIODevice, QSignalBlocker
 )
 from PyQt6.QtGui import (
     QAction, QFont, QColor, QKeySequence, QIcon
@@ -46,7 +48,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QComboBox,
     QListWidget, QListWidgetItem, QTextEdit,
     QFileDialog, QMessageBox, QToolBar, QStatusBar,
-    QTabWidget, QScrollBar, QSizePolicy, QMenu,
+    QTabWidget, QScrollBar, QSizePolicy, QMenu, QScrollArea,
     QDialog, QFormLayout, QLineEdit, QSpinBox,
     QTreeWidget, QTreeWidgetItem,
 )
@@ -90,6 +92,7 @@ class WorkerRelay(QObject):
     pmu_frame_received  = pyqtSignal(bytes, dict)
     proxy_packet        = pyqtSignal(object)   # PacketRecord
     simulation_error    = pyqtSignal(str)
+    attack_state_changed = pyqtSignal()
 
     def emit_pmu_frame(self, raw: bytes, frame_dict: dict) -> None:
         try:
@@ -158,9 +161,12 @@ class MainWindow(QMainWindow):
         self._dnp3:   Optional[DNP3Simulator]   = None
         self._modbus: Optional[ModbusSimulator] = None
         self._sim_running = False
+        self._selected_link = None
+        self._run_started_at = 0.0
 
         # Integration manager (Wireshark/pcap, Syslog/CEF, REST API)
         self._integration = IntegrationManager()
+        self._integration.set_attack_hooks(self._api_enable_attack, self._api_disable_attack)
 
         # Packet log buffer (for performance — batch-update)
         self._log_buffer:  List[str]   = []
@@ -408,8 +414,8 @@ class MainWindow(QMainWindow):
 
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMinimumWidth(300)
-        panel.setMaximumWidth(380)
+        panel.setMinimumWidth(360)
+        panel.setMaximumWidth(520)
         panel.setStyleSheet("background: #252535; border-left: 1px solid #2d2d44;")
 
         tabs = QTabWidget()
@@ -419,7 +425,11 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._props_panel, "Properties")
 
         self._attack_panel = AttackPanel(self._engine)
-        tabs.addTab(self._attack_panel, "Attacks")
+        attack_scroll = QScrollArea()
+        attack_scroll.setWidgetResizable(True)
+        attack_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        attack_scroll.setWidget(self._attack_panel)
+        tabs.addTab(attack_scroll, "Attacks")
 
         self._integration_panel = IntegrationPanel(self._integration)
         tabs.addTab(self._integration_panel, "Integrations")
@@ -445,6 +455,9 @@ class MainWindow(QMainWindow):
         lbl.setStyleSheet("color: #a78bfa; font-weight: 600; font-size: 12px;")
         hdr_layout.addWidget(lbl)
         self._dash_label = QLabel("● Ready  |  0 packets")
+        self._dash_label.setWordWrap(True)
+        self._dash_label.setMinimumWidth(0)
+        self._dash_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._dash_label.setStyleSheet("color: #64748b; font-size: 11px;")
         hdr_layout.addWidget(self._dash_label)
         hdr_layout.addStretch()
@@ -503,6 +516,13 @@ class MainWindow(QMainWindow):
         self._act_stop.triggered.connect(self._stop_simulation)
         self._act_stop.setEnabled(False)
         sim_menu.addActions([self._act_run, self._act_stop])
+        sim_menu.addSeparator()
+        self._adapter_actions = {}
+        for name in ("GOOSE", "DNP3", "Modbus"):
+            action = QAction(f"Enable {name} adapter on next Run", self, checkable=True)
+            action.setToolTip("Optional protocol traffic. GOOSE publishes on the local network interface and needs raw-socket permission.")
+            sim_menu.addAction(action)
+            self._adapter_actions[name] = action
 
         scenario_menu = mb.addMenu("&Scenarios")
         for name, attack_type, params in [
@@ -652,6 +672,14 @@ class MainWindow(QMainWindow):
         self._status_timer.start()
 
     def _update_status_bar(self) -> None:
+        self._integration.sim_running = self._sim_running
+        self._integration.attack_data = self._engine.snapshot()
+        if self._sim_running and ((self._pmu and not self._pmu.is_running) or
+                                  (self._proxy and not self._proxy.is_running)):
+            reason = ((self._pmu.last_error if self._pmu else "") or
+                      (self._proxy.last_error if self._proxy else "") or "Worker stopped unexpectedly")
+            self._stop_simulation()
+            self._log(f"[ERROR] {reason}", "warn")
         if self._pmu and self._pmu.is_running:
             self._sb_pmu.setText(f"PMU: ●  Running ({self._pmu.packets_sent:,})")
             self._sb_pmu.setObjectName("status_pmu_running")
@@ -711,6 +739,8 @@ class MainWindow(QMainWindow):
         self._relay.pmu_frame_received.connect(self._on_pmu_frame)
         self._relay.proxy_packet.connect(self._on_proxy_packet)
         self._relay.simulation_error.connect(self._on_simulation_error)
+        self._relay.attack_state_changed.connect(self._sync_attack_ui)
+        self._canvas.signals.topology_changed.connect(self._topology_changed)
 
     # ── Simulation control ────────────────────────────────────────────────────
 
@@ -740,6 +770,12 @@ class MainWindow(QMainWindow):
         pmu_port = pmu_nodes[0].port if pmu_nodes else 4712
         pdc_ip   = pdc_nodes[0].ip   if pdc_nodes else "127.0.0.1"
         pdc_port = pdc_nodes[0].port if pdc_nodes else 4713
+        config = pmu_nodes[0].get_config()
+        transport = pmu_nodes[0].proto.upper()
+        self._codec = C37118Codec(idcode=int(config.get("idcode", 1)), num_digital=1)
+        self._engine.reset_stats()
+        self._engine.reset_attack_state()
+        self._run_started_at = time.time()
 
         # Proxy listens on PMU's port; PMU sends to proxy
         proxy_port = pmu_port
@@ -749,84 +785,105 @@ class MainWindow(QMainWindow):
 
         # Create proxy
         self._proxy = PDCProxy(
-            listen_host="127.0.0.1",
+            listen_host=pmu_ip,
             listen_port=proxy_port,
             target_host=pdc_ip,
             target_port=pdc_port,
-            proto="UDP",
+            proto=transport,
             codec=self._codec,
             attack_engine=self._engine,
             traffic_filter=self._filter,
             on_packet=self._relay.emit_proxy_packet,
         )
+        self._update_attack_scope()
         self._proxy.start()
 
         # Give proxy a moment to bind
-        time.sleep(0.15)
+        if not self._proxy.ready.wait(2) or self._proxy.last_error or not self._proxy.is_running:
+            reason = self._proxy.last_error or "Proxy did not become ready"
+            self._stop_simulation()
+            QMessageBox.critical(self, "Startup Error", reason)
+            return
 
         # Create PMU
         self._pmu = PMUSimulator(
-            dst_host="127.0.0.1",
+            dst_host="127.0.0.1" if pmu_ip == "0.0.0.0" else pmu_ip,
             dst_port=proxy_port,
-            fps=30,
-            nom_freq=50.0,
-            nom_voltage=120.0,
+            idcode=int(config.get("idcode", 1)),
+            fps=int(config.get("reporting_rate", 30)),
+            nom_freq=float(config.get("nom_freq", 50.0)),
+            nom_voltage=float(config.get("nom_voltage", 120.0)),
+            proto=transport,
             on_frame=self._relay.emit_pmu_frame,
         )
         self._pmu.start()
+        if not self._pmu.ready.wait(2) or self._pmu.last_error or not self._pmu.is_running:
+            reason = self._pmu.last_error or "PMU did not become ready"
+            self._stop_simulation()
+            QMessageBox.critical(self, "Startup Error", reason)
+            return
 
         self._sim_running = True
+        self._integration.sim_running = True
+        self._integration.topology_data = self._serialize_topology()
+        self._props_panel.setEnabled(False)
+        self._waveform.clear()
         self._waveform.start()
         self._canvas.set_simulation_running(True)
 
         # ── Start GOOSE simulator ───────────────────────────────────────────
-        try:
-            self._goose = GOOSESimulator(
-                interface  = "",   # auto-detect (eth0 or similar)
-                appid      = 0x0001,
-                ied_name   = "GridSecSim",
-                fps        = 1.0,
-                callback   = None,
-            )
-            self._goose.start()
-            if self._goose.is_active:
-                self._log("[GOOSE] Publisher started on raw Ethernet ✔", "system")
-            elif self._goose.error:
-                self._log(f"[GOOSE] {self._goose.error}", "warn")
-                self._log("[GOOSE] Run with: sudo python main.py", "warn")
-        except Exception as e:
-            self._log(f"[GOOSE] Failed to start: {e}", "warn")
-            self._goose = None
+        if self._adapter_actions["GOOSE"].isChecked():
+            try:
+                self._goose = GOOSESimulator(
+                    interface  = "",   # auto-detect (eth0 or similar)
+                    appid      = 0x0001,
+                    ied_name   = "GridSecSim",
+                    fps        = 1.0,
+                    callback   = None,
+                )
+                self._goose.start()
+                if self._goose.is_active:
+                    self._log("[GOOSE] Publisher started on raw Ethernet ✔", "system")
+                elif self._goose.error:
+                    self._log(f"[GOOSE] {self._goose.error}", "warn")
+                    self._log("[GOOSE] Run with: sudo python main.py", "warn")
+            except Exception as e:
+                self._log(f"[GOOSE] Failed to start: {e}", "warn")
+                self._goose = None
 
         # ── Start DNP3 simulator ────────────────────────────────────────────
-        try:
-            self._dnp3 = DNP3Simulator(
-                target_ip   = "127.0.0.1",
-                target_port = 20000,
-                bind_port   = 20000,
-                fps         = 1.0,
-            )
-            self._dnp3.start()
-            self._log("[DNP3] Outstation started on UDP port 20000 ✔", "system")
-        except Exception as e:
-            self._log(f"[DNP3] Failed to start: {e}", "warn")
-            self._dnp3 = None
+        if self._adapter_actions["DNP3"].isChecked():
+            try:
+                self._dnp3 = DNP3Simulator(
+                    target_ip   = "127.0.0.1",
+                    target_port = 20000,
+                    bind_port   = 20000,
+                    fps         = 1.0,
+                )
+                self._dnp3.start()
+                self._log("[DNP3] Outstation started on UDP port 20000 ✔", "system")
+            except Exception as e:
+                self._log(f"[DNP3] Failed to start: {e}", "warn")
+                self._dnp3 = None
 
         # ── Start Modbus simulator ──────────────────────────────────────────
-        try:
-            self._modbus = ModbusSimulator(
-                host         = "127.0.0.1",
-                port         = 502,
-                poll_rate_hz = 1.0,
-            )
-            self._modbus.start()
-            self._log(f"[Modbus] Server started on TCP port {self._modbus.active_port} ✔", "system")
-        except Exception as e:
-            self._log(f"[Modbus] Failed to start: {e}", "warn")
-            self._modbus = None
+        if self._adapter_actions["Modbus"].isChecked():
+            try:
+                self._modbus = ModbusSimulator(
+                    host         = "127.0.0.1",
+                    port         = 502,
+                    poll_rate_hz = 1.0,
+                )
+                self._modbus.start()
+                self._log(f"[Modbus] Server started on TCP port {self._modbus.active_port} ✔", "system")
+            except Exception as e:
+                self._log(f"[Modbus] Failed to start: {e}", "warn")
+                self._modbus = None
 
         # Update toolbar
         self._tb_run.setEnabled(False)
+        for action in self._adapter_actions.values():
+            action.setEnabled(False)
         self._tb_stop.setEnabled(True)
         self._act_run.setEnabled(False)
         self._act_stop.setEnabled(True)
@@ -834,15 +891,18 @@ class MainWindow(QMainWindow):
         self._log("[SIM] Simulation running ▶", "system")
 
     def _stop_simulation(self) -> None:
-        if not self._sim_running:
-            return
+        self._sim_running = False
+        self._integration.sim_running = False
+        self._engine.cancel_event.set()
 
         if self._pmu:
             self._pmu.stop()
+            self._pmu.join(timeout=2)
             self._pmu = None
 
         if self._proxy:
             self._proxy.stop()
+            self._proxy.join(timeout=2)
             self._proxy = None
 
         if self._goose:
@@ -860,8 +920,11 @@ class MainWindow(QMainWindow):
         self._sim_running = False
         self._waveform.stop()
         self._canvas.set_simulation_running(False)
+        self._props_panel.setEnabled(True)
 
         self._tb_run.setEnabled(True)
+        for action in self._adapter_actions.values():
+            action.setEnabled(True)
         self._tb_stop.setEnabled(False)
         self._act_run.setEnabled(True)
         self._act_stop.setEnabled(False)
@@ -876,22 +939,24 @@ class MainWindow(QMainWindow):
 
     def _on_proxy_packet(self, record: PacketRecord) -> None:
         """Called in main thread via relay for each processed packet."""
+        if not self._sim_running or record.timestamp < self._run_started_at:
+            return
         # Feed waveform viewer
         self._waveform.push_frame_from_record(record)
 
         # Forward values to GOOSE / DNP3 / Modbus simulators
-        orig = record.original or {}
+        orig = record.modified if record.forwarded else {}
         ph   = orig.get("phasors", [[120.0, 0.0], [119.5, 0.0], [120.5, 0.0]])
         va   = ph[0][0] if len(ph) > 0 else 120.0
         vb   = ph[1][0] if len(ph) > 1 else 119.5
         vc   = ph[2][0] if len(ph) > 2 else 120.5
         freq = orig.get("freq", 50.0)
 
-        if self._goose:
+        if self._goose and orig.get("frame_type") == "data":
             self._goose.update_values(va=va, vb=vb, vc=vc, freq=freq)
-        if self._dnp3:
+        if self._dnp3 and orig.get("frame_type") == "data":
             self._dnp3.update_values(va=va, vb=vb, vc=vc, freq=freq)
-        if self._modbus:
+        if self._modbus and orig.get("frame_type") == "data":
             self._modbus.update_values(va=va, vb=vb, vc=vc, freq=freq)
 
         # Record to integration manager (pcap, syslog, REST API)
@@ -901,18 +966,16 @@ class MainWindow(QMainWindow):
                 record,
                 raw_bytes  = raw_bytes,
                 protocol   = "C37.118",
-                src_ip     = "10.0.0.1",
-                dst_ip     = "10.0.0.2",
-                src_port   = 49000,
-                dst_port   = 4712,
-                transport  = "UDP",
+                src_ip     = record.src_addr[0],
+                dst_ip     = record.dst_addr[0],
+                src_port   = record.src_addr[1],
+                dst_port   = record.dst_addr[1],
+                transport  = record.transport,
             )
             # Keep integration manager in sync with sim state
-            self._integration.sim_running = True
-            self._integration.attack_data = self._engine.stats
-            self._integration.topology_data = self._canvas.save_topology()
+            self._integration.attack_data = self._engine.snapshot()
         except Exception:
-            pass
+            logger.exception("Integration update failed")
 
         # Build log line with color
         line_html = self._format_log_line(record)
@@ -968,6 +1031,9 @@ class MainWindow(QMainWindow):
         elif status == "invalid":
             color = "#64748b"
             badge = f"<span style='color:#64748b'>INVALID </span>"
+        elif status == "forward_error":
+            color = "#ef4444"
+            badge = "<span style='color:#ef4444'>SEND ERROR</span>"
         else:
             color = "#10b981"
             badge = f"<span style='color:#10b981'>CLEAN   </span>"
@@ -994,6 +1060,8 @@ class MainWindow(QMainWindow):
                 f" <span style='color:#7c3aed;font-size:10px'>[{record.attack_type}]</span>"
             )
 
+        if record.description and record.status != "clean":
+            line += f" <span style='color:#94a3b8'>{escape(record.description)}</span>"
         return line
 
     def _log(self, text: str, style: str = "info") -> None:
@@ -1005,7 +1073,7 @@ class MainWindow(QMainWindow):
             "warn":   "#f59e0b",
         }
         color = colors.get(style, "#64748b")
-        self._log_buffer_append(f"<span style='color:{color}'>{text}</span>")
+        self._log_buffer_append(f"<span style='color:{color}'>{escape(text)}</span>")
 
     def _clear_log(self) -> None:
         self._log_text.clear()
@@ -1022,6 +1090,8 @@ class MainWindow(QMainWindow):
             self._props_panel.clear()
 
     def _on_link_selected(self, link) -> None:
+        self._selected_link = link
+        self._update_attack_scope()
         if link:
             self._props_panel.show_link(link)
 
@@ -1044,6 +1114,9 @@ class MainWindow(QMainWindow):
             agent._config["attack_type"] = attack_type
             agent._config["attack_params"] = dict(params)
             agent._config["attack_schedule"] = self._engine.schedule
+            agent._config["attack_enabled"] = self._engine.is_enabled
+        self._update_attack_scope()
+        self._integration.attack_data = self._engine.snapshot()
         if active_agents:
             self._log(f"[ATTACK] {attack_type} configured for " +
                       ", ".join(agent.label for agent in active_agents), "system")
@@ -1077,9 +1150,109 @@ class MainWindow(QMainWindow):
         tabs  = right.findChild(QTabWidget)
         if tabs:
             tabs.setCurrentIndex(1)   # Attack tab
-        self._attack_panel.sync_from_engine()
+        self._attack_panel.select_attack(attack_type)
 
     # ── File operations ───────────────────────────────────────────────────────
+
+    def _api_enable_attack(self, attack_type, params):
+        # HTTP workers only touch the locked engine; all widgets stay on Qt's thread.
+        self._engine.set_attack(AttackType(attack_type), params)
+        self._integration.attack_data = self._engine.snapshot()
+        self._relay.attack_state_changed.emit()
+        return True
+
+    def _api_disable_attack(self):
+        self._engine.disable()
+        self._integration.attack_data = self._engine.snapshot()
+        self._relay.attack_state_changed.emit()
+        return True
+
+    def _sync_attack_ui(self):
+        self._attack_panel.sync_from_engine()
+        self._on_attack_configured(self._engine.active_type.value, self._engine.get_params())
+
+    def _update_attack_scope(self):
+        if not self._proxy:
+            return
+        if self._attack_panel.get_scope() == "all":
+            self._proxy.attack_enabled = True
+            return
+        pmus, pdcs = self._canvas.get_pmu_nodes(), self._canvas.get_pdc_nodes()
+        link = self._selected_link
+        self._proxy.attack_enabled = bool(
+            pmus and pdcs and link in self._canvas.get_all_links() and
+            link.protocol == "C37.118" and
+            {link.src_node, link.dst_node} == {pmus[0], pdcs[0]})
+
+    def _topology_changed(self):
+        if self._selected_link not in self._canvas.get_all_links():
+            self._selected_link = None
+        self._props_panel.clear()
+        self._integration.topology_data = self._serialize_topology()
+
+    def _serialize_topology(self):
+        data = self._canvas.save_topology()
+        state = self._engine.snapshot()
+        state.pop("stats", None)
+        state["scope"] = self._attack_panel.get_scope()
+        link = self._selected_link
+        state["selected_link"] = ([link.src_node._topology_id, link.dst_node._topology_id]
+                                  if link in self._canvas.get_all_links() else None)
+        data["simulation"] = state
+        return data
+
+    def save_topology_to(self, path):
+        """Atomic save: an interrupted or failed write leaves the old file intact."""
+        payload = json.dumps(self._serialize_topology(), indent=2, allow_nan=False).encode("utf-8")
+        target = QSaveFile(str(path))
+        if not target.open(QIODevice.OpenModeFlag.WriteOnly):
+            raise OSError(target.errorString())
+        if target.write(payload) != len(payload) or not target.commit():
+            target.cancelWriting()
+            raise OSError(target.errorString())
+
+    def _load_topology_data(self, data):
+        if self._sim_running:
+            raise ValueError("Stop before loading a topology")
+        self._canvas.validate_topology(data)
+        state = data.get("simulation")
+        if state is None:
+            agent = next((n for n in data["nodes"]
+                          if n["node_type"] == NodeType.THREAT_AGENT and n.get("active")
+                          and n.get("attack_type")), {})
+            state = {"type": agent.get("attack_type", "NONE"),
+                     "params": agent.get("attack_params", {}),
+                     "enabled": agent.get("attack_enabled", bool(agent)),
+                     "schedule": agent.get("attack_schedule", {})}
+        if not isinstance(state, dict) or state.get("scope", "all") not in ("all", "selected"):
+            raise ValueError("Invalid simulation settings")
+        candidate = AttackEngine()
+        candidate.set_attack(AttackType(state.get("type", "NONE")), state.get("params", {}))
+        schedule = state.get("schedule", {})
+        if not isinstance(schedule, dict):
+            raise ValueError("Invalid schedule")
+        start, duration = schedule.get("start_frame", 0), schedule.get("duration_frames", 0)
+        if any(not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= 1000000
+               for v in (start, duration)):
+            raise ValueError("Schedule values must be integers from 0 to 1000000")
+        if not isinstance(state.get("enabled", False), bool):
+            raise ValueError("Attack enabled must be boolean")
+        selected = state.get("selected_link")
+        if selected is not None and (not isinstance(selected, list) or len(selected) != 2):
+            raise ValueError("Invalid selected link")
+        self._canvas.load_topology(data)
+        self._engine.set_attack(candidate.active_type, candidate.get_params())
+        self._engine.set_schedule(start, duration)
+        self._engine.reset_stats()
+        self._engine.reset_attack_state()
+        if not state.get("enabled", False):
+            self._engine.disable()
+        self._selected_link = next((link for link in self._canvas.get_all_links()
+                                   if [link.src_node._topology_id, link.dst_node._topology_id] == selected), None)
+        self._attack_panel._scope_all.setChecked(state.get("scope", "all") == "all")
+        self._attack_panel._scope_sel.setChecked(state.get("scope", "all") == "selected")
+        self._attack_panel.sync_from_engine()
+        self._integration.topology_data = self._serialize_topology()
 
     def _new_topology(self) -> None:
         if self._sim_running:
@@ -1097,21 +1270,25 @@ class MainWindow(QMainWindow):
             "JSON files (*.json);;All files (*)"
         )
         if path:
-            data = self._canvas.save_topology()
-            with open(path, "w") as f:
-                json.dump(data, f, indent=2)
-            self._log(f"[FILE] Topology saved to {path}", "system")
+            try:
+                self.save_topology_to(path)
+                self._log(f"[FILE] Topology saved to {path}", "system")
+            except Exception as exc:
+                QMessageBox.critical(self, "Save Error", f"Could not save topology:\n{exc}")
 
     def _open_topology(self) -> None:
+        if self._sim_running:
+            QMessageBox.warning(self, "Simulation Running", "Stop before opening a topology.")
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Topology", "",
             "JSON files (*.json);;All files (*)"
         )
         if path:
             try:
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-                self._canvas.load_topology(data)
+                self._load_topology_data(data)
                 self._log(f"[FILE] Topology loaded from {path}", "system")
             except Exception as exc:
                 QMessageBox.critical(self, "Load Error", f"Failed to load topology:\n{exc}")
@@ -1120,25 +1297,33 @@ class MainWindow(QMainWindow):
         """Load the bundled PMU → MitM → PDC example topology."""
         if self._sim_running:
             QMessageBox.warning(self, "Simulation Running", "Stop the simulation before loading a topology.")
-            return
+            return False
         path = Path(__file__).resolve().parent.parent / "mitm-demo-topology.json"
         try:
             with open(path, encoding="utf-8") as f:
-                self._canvas.load_topology(json.load(f))
+                self._load_topology_data(json.load(f))
             self._canvas.zoom_fit()
             self._log("[FILE] MitM demo topology loaded", "system")
+            return True
         except Exception as exc:
             QMessageBox.critical(self, "Demo Load Error", f"Could not load the bundled demo:\n{exc}")
+            return False
 
     def _load_quick_scenario(self, name: str, attack_type: AttackType, params: dict) -> None:
         """Load the local demo and configure one guided training scenario."""
-        self._load_mitm_demo()
+        if not self._load_mitm_demo():
+            return
+        self._engine.set_schedule()
+        self._engine.reset_stats()
+        self._engine.reset_attack_state()
+        self._engine.set_attack(attack_type, params)
         if attack_type == AttackType.NONE:
             self._engine.disable()
         else:
             self._engine.set_attack(attack_type, params)
             self._engine.enable()
         self._attack_panel.sync_from_engine()
+        self._on_attack_configured(attack_type.value, self._engine.get_params())
         self._log(f"[SCENARIO] Loaded: {name}", "system")
 
     def _topology_validation_messages(self) -> tuple[list[str], list[str]]:
@@ -1152,6 +1337,37 @@ class MainWindow(QMainWindow):
             errors.append("Add at least one PMU before running a simulation.")
         if not pdcs:
             errors.append("Add at least one Local PDC before running a simulation.")
+        if len(pmus) > 1 or len(pdcs) > 1:
+            warnings.append("Runtime currently uses only the first PMU and first Local PDC; other nodes are diagram assets.")
+        for node in pmus[:1] + pdcs[:1]:
+            try:
+                ipaddress.IPv4Address(node.ip)
+                if not 1 <= node.port <= 65535:
+                    raise ValueError("port must be from 1 to 65535")
+                if node.proto.upper() not in ("UDP", "TCP"):
+                    raise ValueError("transport must be UDP or TCP")
+            except (ValueError, TypeError, AttributeError) as exc:
+                errors.append(f"{node.label}: invalid endpoint ({exc})")
+        if pmus and pdcs:
+            if pmus[0].proto.upper() != pdcs[0].proto.upper():
+                errors.append("PMU and PDC must use the same transport.")
+            if pmus[0].port == pdcs[0].port and (
+                    pmus[0].ip in (pdcs[0].ip, "0.0.0.0") or
+                    {pmus[0].ip, pdcs[0].ip} <= {"127.0.0.1", "0.0.0.0"}):
+                errors.append("Proxy input and PDC output must use different local endpoints (prevents a packet loop).")
+            cfg = pmus[0].get_config()
+            for key, default, low, high in (("reporting_rate", 30, 1, 120),
+                                           ("idcode", 1, 1, 65535)):
+                value = cfg.get(key, default)
+                if not isinstance(value, int) or not low <= value <= high:
+                    errors.append(f"PMU {key} must be an integer from {low} to {high}.")
+            for key, default, low, high in (("nom_freq", 50, 45, 65),
+                                           ("nom_voltage", 120, 0, 1000000)):
+                value = cfg.get(key, default)
+                if not isinstance(value, (int, float)) or not low <= value <= high:
+                    errors.append(f"PMU {key} must be a number from {low} to {high}.")
+        if self._attack_panel.get_scope() == "selected" and self._selected_link not in links:
+            warnings.append("Selected Link scope has no target; packets will pass through unchanged.")
         if pmus and pdcs:
             pmu_pdc_link = any(
                 link.protocol == "C37.118" and
@@ -1183,6 +1399,9 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Topology Validation", "<br><br>".join(message))
 
     def _confirm_clear(self) -> None:
+        if self._sim_running:
+            QMessageBox.warning(self, "Simulation Running", "Stop before clearing the topology.")
+            return
         reply = QMessageBox.question(
             self, "Clear Canvas", "Remove all nodes and links?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -1223,6 +1442,6 @@ class MainWindow(QMainWindow):
     # ── Window close ─────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
-        if self._sim_running:
-            self._stop_simulation()
+        self._stop_simulation()
+        self._integration.stop()
         event.accept()

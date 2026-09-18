@@ -1,0 +1,30 @@
+\chapter{Contributing}\label{chapter-14}
+Start with the \hyperref[chapter-13]{Developer guide} and \hyperref[chapter-16]{Known limitations}. This repository does not yet define a formal maintainer roster, support SLA, contributor agreement, or release process.
+
+\Needspace{10\baselineskip}
+\section*{Local workflow}
+\pdfbookmark[1]{Local workflow}{chapter-14-s1}
+\begin{enumerate}
+\item Use a dedicated environment and run the current regression suite before changing behavior.
+\item Keep the change focused and preserve unrelated work.
+\item Test the actual behavior affected: codec bytes, attack outcome, UI synchronization, topology round-trip, or integration lifecycle.
+\item Update user/reference documentation when a setting, schema, route, or supported workflow changes.
+\item Provide a review description covering the problem, resulting behavior, validation, and remaining limitations.
+\end{enumerate}
+
+See \hyperref[chapter-15]{Testing} for portable commands. Do not run \code{\seqsplit{test\_launch.sh}} or deployment helpers without inspecting their source-copying behavior and fixed paths.
+
+\Needspace{10\baselineskip}
+\section*{Bug reports}
+\pdfbookmark[1]{Bug reports}{chapter-14-s2}
+Include source revision, OS/Python/package versions, reproduction steps, expected/actual behavior, a minimal topology where relevant, and redacted logs. Distinguish GUI observations from independently verified network receipt. Identify whether a problem affects a documented limitation or a previously working path.
+
+For sensitive security findings, follow \hyperref[chapter-12]{Security}. Do not include API tokens, private receiver details, or unrelated production data in public reports.
+
+\Needspace{10\baselineskip}
+\section*{Contribution boundaries}
+\pdfbookmark[1]{Contribution boundaries}{chapter-14-s3}
+Use synthetic fixtures and loopback or explicitly authorized lab endpoints. Keep codecs usable without Qt. Preserve portable topology identifiers and compatibility deliberately. Avoid adding dependencies without documenting their purpose and installation impact.
+
+Licensing remains unresolved until the maintainer supplies the authoritative \code{\seqsplit{LICENSE}} and copyright notice; the former README's MIT statement is not a substitute for that file.
+

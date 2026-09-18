@@ -39,7 +39,7 @@ def get_codec() -> C37118Codec:
     return _active_codec
 
 
-def parse_frame(raw_bytes: bytes) -> Optional[dict]:
+def parse_frame(raw_bytes: bytes, codec: Optional[C37118Codec] = None) -> Optional[dict]:
     """
     Parse a raw C37.118 binary frame to a Python dict.
 
@@ -54,10 +54,14 @@ def parse_frame(raw_bytes: bytes) -> Optional[dict]:
     if len(raw_bytes) < 4:
         return None
 
+    codec = codec or _active_codec
+    if (len(raw_bytes) < 16 or struct.unpack_from(">H", raw_bytes, 2)[0] != len(raw_bytes)
+            or calculate_crc(raw_bytes[:-2]) != struct.unpack(">H", raw_bytes[-2:])[0]):
+        return {"frame_type": "data_invalid", "raw": raw_bytes}
     frame_type = C37118Codec.detect_frame_type(raw_bytes)
 
     if frame_type == "data":
-        decoded = _active_codec.decode_data_frame(raw_bytes)
+        decoded = codec.decode_data_frame(raw_bytes)
         if decoded is None:
             logger.warning("parse_frame: DATA frame failed CRC or length check")
             return {"frame_type": "data_invalid", "raw": raw_bytes}
@@ -67,7 +71,7 @@ def parse_frame(raw_bytes: bytes) -> Optional[dict]:
         return d
 
     elif frame_type in ("cfg2", "cfg1", "cfg3"):
-        decoded = _active_codec.decode_config_frame(raw_bytes)
+        decoded = codec.decode_config_frame(raw_bytes)
         if decoded is None:
             return {"frame_type": "cfg_invalid", "raw": raw_bytes}
         decoded["frame_type"] = frame_type
@@ -75,7 +79,7 @@ def parse_frame(raw_bytes: bytes) -> Optional[dict]:
         return decoded
 
     elif frame_type == "command":
-        decoded = _active_codec.decode_command_frame(raw_bytes)
+        decoded = codec.decode_command_frame(raw_bytes)
         if decoded is None:
             return {"frame_type": "cmd_invalid", "raw": raw_bytes}
         decoded["frame_type"] = "command"
@@ -87,7 +91,7 @@ def parse_frame(raw_bytes: bytes) -> Optional[dict]:
         return {"frame_type": "unknown", "raw": raw_bytes}
 
 
-def rebuild_frame(frame_dict: dict) -> bytes:
+def rebuild_frame(frame_dict: dict, codec: Optional[C37118Codec] = None) -> bytes:
     """
     Re-encode a (possibly modified) frame dict back to binary bytes.
 
@@ -110,7 +114,8 @@ def rebuild_frame(frame_dict: dict) -> bytes:
 
     # Re-encode from the (possibly modified) dict fields
     try:
-        return _active_codec.encode_data_frame(
+        codec = codec or _active_codec
+        raw = codec.encode_data_frame(
             phasors = frame_dict.get("phasors", [(0.0, 0.0)]),
             freq    = frame_dict.get("freq",    50.0),
             dfreq   = frame_dict.get("dfreq",   0.0),
@@ -120,9 +125,12 @@ def rebuild_frame(frame_dict: dict) -> bytes:
             fracsec = frame_dict.get("fracsec", None),
             stat    = frame_dict.get("stat",    0x0000),
         )
+        # Preserve the received station identity, including replayed frames.
+        raw = raw[:4] + struct.pack(">H", frame_dict.get("idcode", codec.idcode)) + raw[6:-2]
+        return raw + crc_bytes(raw)
     except Exception as exc:
         logger.error(f"rebuild_frame failed: {exc}")
-        return frame_dict.get("raw", b"")
+        raise ValueError(f"Could not encode modified frame: {exc}") from exc
 
 
 def frame_summary(frame_dict: dict) -> str:

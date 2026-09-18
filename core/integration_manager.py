@@ -136,6 +136,7 @@ class SyslogCEFSender:
 
     def connect(self) -> bool:
         """Establish socket connection."""
+        self.disconnect()
         try:
             with self._lock:
                 if self._protocol == "UDP":
@@ -150,6 +151,7 @@ class SyslogCEFSender:
             return True
         except Exception as e:
             self.last_error = str(e)
+            self.disconnect()
             self._connected = False
             logger.warning(f"Syslog: connect failed: {e}")
             return False
@@ -502,6 +504,8 @@ class IntegrationManager:
         self._rest:   Optional[GridSecRESTServer] = None
 
         # Config (set before start())
+        self._last_pcap_path = ""
+        self._last_pcap_count = 0
         self._pcap_cfg:   dict = {}
         self._syslog_cfg: dict = {}
         self._rest_cfg:   dict = {}
@@ -524,67 +528,91 @@ class IntegrationManager:
                          protocol: str = "UDP") -> None:
         self._syslog_cfg = {"host": host, "port": port, "protocol": protocol}
 
-    def configure_rest_api(self, host: str = "0.0.0.0", port: int = 8080) -> None:
+    def configure_rest_api(self, host: str = "127.0.0.1", port: int = 8080) -> None:
         self._rest_cfg = {"host": host, "port": port}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def start(self) -> dict:
-        """
-        Start all configured integrations.
-        Returns dict of {name: success/error} for each integration.
-        """
         results = {}
-
-        # pcap
         if self._pcap_cfg:
-            try:
-                self._pcap = PcapWriter(
-                    path     = self._pcap_cfg.get("path", "/tmp/gridsec_capture.pcap"),
-                    use_fifo = self._pcap_cfg.get("use_fifo", False),
-                )
-                results["pcap"] = "started"
-                logger.info(f"Integration: pcap → {self._pcap.path}")
-            except Exception as e:
-                results["pcap"] = f"error: {e}"
-
-        # Syslog
+            results.update(self.start_pcap_only())
         if self._syslog_cfg:
-            try:
-                self._syslog = SyslogCEFSender(**self._syslog_cfg)
-                ok = self._syslog.connect()
-                results["syslog"] = "connected" if ok else f"error: {self._syslog.last_error}"
-                logger.info(f"Integration: syslog → {self._syslog_cfg}")
-            except Exception as e:
-                results["syslog"] = f"error: {e}"
-
-        # REST API
+            results.update(self.start_syslog_only())
         if self._rest_cfg:
-            try:
-                self._rest = GridSecRESTServer(**self._rest_cfg)
-                self._wire_rest_callbacks()
-                ok = self._rest.start()
-                results["rest_api"] = (
-                    f"listening on port {self._rest.port}" if ok
-                    else "failed to start"
-                )
-            except Exception as e:
-                results["rest_api"] = f"error: {e}"
-
+            results.update(self.start_rest_only())
         return results
 
-    def stop(self) -> None:
-        """Stop all integrations."""
+    def start_pcap_only(self) -> dict:
         if self._pcap:
-            self._pcap.close()
-            self._pcap = None
-        if self._syslog:
-            self._syslog.disconnect()
-            self._syslog = None
+            return {"pcap": "already started"}
+        try:
+            writer = PcapWriter(**self._pcap_cfg)
+            if writer.error:
+                writer.close()
+                raise OSError(writer.error)
+            self._pcap = writer
+            self._last_pcap_path = writer.path
+            self._last_pcap_count = 0
+            return {"pcap": "started"}
+        except Exception as exc:
+            return {"pcap": f"error: {exc}"}
+
+    def stop_pcap_only(self) -> None:
+        writer, self._pcap = self._pcap, None
+        if writer:
+            writer.close()
+            self._last_pcap_count = writer.packet_count
+
+    def start_syslog_only(self) -> dict:
+        if self._syslog and self._syslog.is_connected:
+            return {"syslog": "connected"}
+        self.stop_syslog_only()
+        sender = SyslogCEFSender(**self._syslog_cfg)
+        if not sender.connect():
+            sender.disconnect()
+            return {"syslog": f"error: {sender.last_error}"}
+        self._syslog = sender
+        return {"syslog": "connected"}
+
+    def stop_syslog_only(self) -> None:
+        sender, self._syslog = self._syslog, None
+        if sender:
+            sender.disconnect()
+
+    def test_syslog(self) -> tuple:
+        sender = SyslogCEFSender(**self._syslog_cfg)
+        try:
+            return sender.test_connection()
+        finally:
+            sender.disconnect()
+
+    def start_rest_only(self) -> dict:
         if self._rest:
-            self._rest.stop()
+            return {"rest_api": f"listening on port {self._rest.port}"}
+        server = GridSecRESTServer(**self._rest_cfg)
+        self._rest = server
+        self._wire_rest_callbacks()
+        if not server.start():
             self._rest = None
-        logger.info("IntegrationManager: all integrations stopped")
+            return {"rest_api": f"error: {server.last_error}"}
+        return {"rest_api": f"listening on port {server.port}"}
+
+    def stop_rest_only(self) -> None:
+        server, self._rest = self._rest, None
+        if server:
+            server.stop()
+
+    def disable_rest_auth(self) -> None:
+        if self._rest:
+            self._rest.disable_auth()
+
+    def stop(self) -> None:
+        """Stop integrations without discarding the last capture file."""
+        self.stop_pcap_only()
+        self.stop_syslog_only()
+        self.stop_rest_only()
+        self.sim_running = False
 
     # ── Packet ingestion ──────────────────────────────────────────────────────
 
@@ -605,6 +633,7 @@ class IntegrationManager:
         """
         try:
             ts = getattr(record, "timestamp", time.time())
+            raw_bytes = raw_bytes or getattr(record, "raw_bytes", b"")
 
             # Build incident
             status    = getattr(record, "status", "clean")
@@ -617,6 +646,7 @@ class IntegrationManager:
                 "attacked":"HIGH",
                 "dropped": "MEDIUM",
                 "invalid": "LOW",
+                "forward_error": "HIGH",
             }.get(status, "INFO")
 
             incident = Incident(
@@ -627,7 +657,7 @@ class IntegrationManager:
                 attack_type = atk_type,
                 status      = status,
                 severity    = severity,
-                description = f"{protocol} {status} packet ({atk_type})",
+                description = getattr(record, "description", "") or f"{protocol} {status} packet ({atk_type})",
                 original_val= _serialize_frame(original),
                 modified_val= _serialize_frame(modified) if modified else {},
             )
@@ -642,6 +672,8 @@ class IntegrationManager:
                     "src":       f"{src_ip}:{src_port}",
                     "dst":       f"{dst_ip}:{dst_port}",
                     "len":       len(raw_bytes),
+                    "forwarded": getattr(record, "forwarded", None),
+                    "latency_ms": getattr(record, "latency_ms", 0),
                 })
 
             # Write to pcap
@@ -650,7 +682,7 @@ class IntegrationManager:
                                     src_port, dst_port, transport, ts)
 
             # Syslog only for attacks/drops
-            if self._syslog and status in ("attacked", "dropped", "invalid"):
+            if self._syslog and status in ("attacked", "dropped", "invalid", "forward_error"):
                 self._syslog.send_cef(incident)
 
             # REST SSE broadcast
@@ -662,7 +694,7 @@ class IntegrationManager:
                 self.on_incident(incident)
 
         except Exception as exc:
-            logger.debug(f"IntegrationManager.record_packet error: {exc}")
+            logger.exception("IntegrationManager.record_packet failed")
 
     def _write_to_pcap(self, raw: bytes, protocol: str,
                        src_ip: str, dst_ip: str,
@@ -678,7 +710,7 @@ class IntegrationManager:
             else:
                 self._pcap.write_udp(src_ip, dst_ip, src_port, dst_port, raw, ts)
         except Exception:
-            pass
+            logger.exception("Failed to capture packet")
 
     # ── REST API callbacks ────────────────────────────────────────────────────
 
@@ -693,7 +725,7 @@ class IntegrationManager:
         self._rest.set_stix_callback(self._api_stix)
         self._rest.set_csv_callback(self._api_csv)
         self._rest.set_pcap_path_callback(
-            lambda: self._pcap.path if self._pcap else ""
+            lambda: self.pcap_path
         )
         self._rest.set_enable_attack_callback(self._api_enable_attack)
         self._rest.set_disable_attack_callback(self._api_disable_attack)
@@ -740,9 +772,10 @@ class IntegrationManager:
             return self._attack_enable_hook(attack_type, params)
         return False
 
-    def _api_disable_attack(self) -> None:
+    def _api_disable_attack(self) -> bool:
         if self._attack_disable_hook:
-            self._attack_disable_hook()
+            return bool(self._attack_disable_hook())
+        return False
 
     # ── Attack hooks (set by MainWindow) ─────────────────────────────────────
 
@@ -770,11 +803,11 @@ class IntegrationManager:
 
     @property
     def pcap_path(self) -> str:
-        return self._pcap.path if self._pcap else ""
+        return self._pcap.path if self._pcap else self._last_pcap_path
 
     @property
     def pcap_packet_count(self) -> int:
-        return self._pcap.packet_count if self._pcap else 0
+        return self._pcap.packet_count if self._pcap else self._last_pcap_count
 
     @property
     def syslog_count(self) -> int:
@@ -783,21 +816,21 @@ class IntegrationManager:
     def export_stix(self, path: str) -> None:
         """Save STIX 2.1 bundle to file."""
         bundle = self._api_stix()
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             json.dump(bundle, f, indent=2)
         logger.info(f"STIX exported to {path}")
 
     def export_csv(self, path: str) -> None:
         """Save incident CSV to file."""
         csv_data = self._api_csv()
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(csv_data)
         logger.info(f"CSV exported to {path}")
 
     def export_json(self, path: str) -> None:
         """Save full incident JSON to file."""
         incidents = self._api_incidents()
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             json.dump({
                 "session_id":  self._session_id,
                 "exported_at": datetime.now(tz=timezone.utc).isoformat(),
@@ -814,6 +847,8 @@ def _serialize_frame(frame_dict: dict) -> dict:
     for k, v in frame_dict.items():
         if isinstance(v, (int, float, str, bool, type(None))):
             out[k] = v
+        elif isinstance(v, bytes):
+            out[k] = v.hex()
         elif isinstance(v, list):
             try:
                 out[k] = [list(item) if hasattr(item, '__iter__') else item

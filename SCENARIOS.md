@@ -1,5 +1,7 @@
 # GridSecSim — Complete Scenario Playbook
 
+> **Historical workbook:** Some exercises describe intended behavior beyond the current single-stream runtime. Use the [current user guide](docs/user-guide.md), [attack reference](docs/attacks.md), and [known limitations](docs/known-limitations.md) to verify supported steps before running an exercise.
+
 > **15 hands-on scenarios** you can run yourself. No coding needed.  
 > Each scenario tells you exactly: what to build, what buttons to click, and what to look for.
 

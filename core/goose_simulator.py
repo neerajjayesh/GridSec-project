@@ -159,12 +159,18 @@ class GOOSESimulator:
         if self._running:
             return
         self._running = True
+        self._stop_event = threading.Event()
+        if not self._open_socket():
+            self._running = False
+            return
         self._thread  = threading.Thread(target=self._run, daemon=True,
                                           name="GOOSE-Publisher")
         self._thread.start()
 
     def stop(self) -> None:
         self._running = False
+        if hasattr(self, "_stop_event"):
+            self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
         self._thread = None
@@ -176,6 +182,9 @@ class GOOSESimulator:
 
     def _open_socket(self) -> bool:
         """Open an AF_PACKET raw socket for GOOSE multicast sending."""
+        if not hasattr(socket, "AF_PACKET"):
+            self._error_msg = "Raw Ethernet GOOSE requires Linux/WSL and CAP_NET_RAW."
+            return False
         try:
             # AF_PACKET requires CAP_NET_RAW or root
             self._sock = socket.socket(
@@ -199,11 +208,13 @@ class GOOSESimulator:
                 "  sudo setcap cap_net_raw+eip $(readlink -f $(which python3))"
             )
             logger.warning(f"GOOSE: {self._error_msg}")
+            self._close_socket()
             return False
 
         except OSError as e:
             self._error_msg = f"GOOSE socket error: {e}"
             logger.warning(self._error_msg)
+            self._close_socket()
             return False
 
     def _close_socket(self) -> None:
@@ -276,10 +287,6 @@ class GOOSESimulator:
 
     def _run(self) -> None:
         """Publisher thread main loop."""
-        if not self._open_socket():
-            self._active = False
-            return
-
         self._build_pdu()
         self._active = True
         logger.info(f"GOOSE publisher started on {self._interface}")
@@ -302,11 +309,11 @@ class GOOSESimulator:
                 else:
                     wait_ms = tmax_ms
 
-                time.sleep(wait_ms / 1000.0)
+                self._stop_event.wait(wait_ms / 1000.0)
 
             except Exception as exc:
                 logger.error(f"GOOSE publisher error: {exc}")
-                time.sleep(0.5)
+                self._stop_event.wait(0.5)
 
         self._close_socket()
         self._active = False

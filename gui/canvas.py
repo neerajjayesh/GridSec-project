@@ -298,11 +298,13 @@ class TopologyCanvas(QGraphicsView):
       "delete"  — click any item to delete it
     """
 
-    signals = CanvasSignals()
-
     def __init__(self, parent=None):
         scene = GridScene()
         super().__init__(scene, parent)
+        self.signals = CanvasSignals(self)
+        self._sim_running = False
+        self._loading = False
+        self._snapping = False
 
         self._scene    = scene
         self._mode     = "select"
@@ -352,6 +354,8 @@ class TopologyCanvas(QGraphicsView):
 
     def set_mode(self, mode: str) -> None:
         """Set interaction mode: 'select', 'connect', 'delete'."""
+        if self._sim_running and mode != "select":
+            return
         self._mode = mode
         if mode == "select":
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -370,6 +374,8 @@ class TopologyCanvas(QGraphicsView):
 
     def add_node(self, node_type: str, scene_pos: Optional[QPointF] = None) -> BaseNode:
         """Create and place a node on the canvas, snapping to its level lane."""
+        if self._sim_running:
+            return None
         # Auto-generate label
         count = self._node_counter.get(node_type, 0) + 1
         self._node_counter[node_type] = count
@@ -422,6 +428,13 @@ class TopologyCanvas(QGraphicsView):
 
     def add_link(self, src: BaseNode, dst: BaseNode, protocol: Optional[str] = None) -> LinkItem:
         """Create a directed link between two nodes with smart protocol defaults."""
+        if self._sim_running:
+            return None
+        if src is dst or src not in self._nodes or dst not in self._nodes:
+            raise ValueError("Link endpoints must belong to this canvas")
+        for existing in self._links:
+            if existing.src_node is src and existing.dst_node is dst:
+                return existing
         # Determine protocol: explicit > smart default > canvas default
         if protocol is None:
             protocol = _default_link_protocol(src, dst, self._protocol)
@@ -444,6 +457,9 @@ class TopologyCanvas(QGraphicsView):
         self.signals.topology_changed.emit()
 
     def _delete_item(self, item) -> None:
+        if self._sim_running:
+            return
+        self._scene.clearSelection()
         if isinstance(item, BaseNode):
             # An attacker is owned by the canvas but also registered with the
             # intercepted link.  Clear that registration before removing the
@@ -461,6 +477,9 @@ class TopologyCanvas(QGraphicsView):
             self._delete_link(item)
 
     def _delete_link(self, link: LinkItem) -> None:
+        for agent in list(link._threat_agents):
+            link.remove_threat_agent(agent)
+            agent._config.pop("intercepted_link", None)
         link.src_node.remove_link(link)
         link.dst_node.remove_link(link)
         if link in self._links:
@@ -469,9 +488,13 @@ class TopologyCanvas(QGraphicsView):
 
     def clear_canvas(self) -> None:
         """Remove all nodes and links."""
-        self._scene.clear()
+        if self._sim_running:
+            return
+        self._cancel_drawing()
+        self._scene.clearSelection()
         self._nodes.clear()
         self._links.clear()
+        self._scene.clear()
         self._node_counter.clear()
         self._add_hint()
         self.signals.topology_changed.emit()
@@ -489,6 +512,8 @@ class TopologyCanvas(QGraphicsView):
         nodes_data = []
         for node in self._nodes:
             cfg = node.get_config()
+            for runtime_key in ("_id", "intercepted_link", "running"):
+                cfg.pop(runtime_key, None)
             cfg["id"] = getattr(node, "_topology_id", str(uuid.uuid4()))
             nodes_data.append(cfg)
 
@@ -511,7 +536,11 @@ class TopologyCanvas(QGraphicsView):
 
     def load_topology(self, data: dict) -> None:
         """Restore a topology from a previously saved dict."""
+        if self._sim_running:
+            raise ValueError("Stop the simulation before loading a topology")
+        self.validate_topology(data)
         self.clear_canvas()
+        self._loading = True
 
         id_map: Dict[Any, BaseNode] = {}
 
@@ -520,6 +549,7 @@ class TopologyCanvas(QGraphicsView):
             label     = nd.get("label", "")
             node      = self.add_node(node_type, QPointF(nd.get("x", 0), nd.get("y", 0)))
             node.set_config(nd)
+            node.setPos(QPointF(nd.get("x", 0), nd.get("y", 0)))
             node._label_item.setPlainText(nd.get("label", label))
             topology_id = nd.get("id", nd.get("_id", str(uuid.uuid4())))
             node._topology_id = str(topology_id)
@@ -545,6 +575,62 @@ class TopologyCanvas(QGraphicsView):
                 if isinstance(agent, ThreatAgentNode):
                     link.add_threat_agent(agent)
                     agent._config["intercepted_link"] = id(link)
+        self._loading = False
+        self.signals.topology_changed.emit()
+
+    @staticmethod
+    def validate_topology(data):
+        """Validate before deleting the current scene; accept legacy node IDs."""
+        if not isinstance(data, dict):
+            raise ValueError("Topology must be a JSON object")
+        if data.get("format", "GridSecSim") != "GridSecSim" or data.get("version", 1) not in (1, 2):
+            raise ValueError("Unsupported topology format/version")
+        nodes, links = data.get("nodes"), data.get("links")
+        if not isinstance(nodes, list) or not isinstance(links, list):
+            raise ValueError("Topology requires nodes and links arrays")
+        if len(nodes) > 2000 or len(links) > 10000:
+            raise ValueError("Topology exceeds 2000 nodes or 10000 links")
+        ids = {}
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("node_type") not in NODE_DISPLAY_NAMES:
+                raise ValueError("Unknown or missing node_type")
+            if not isinstance(node.get("label", ""), str):
+                raise ValueError("Node label must be text")
+            key = node.get("id", node.get("_id"))
+            if key is not None:
+                if not isinstance(key, (str, int)) or str(key) in ids:
+                    raise ValueError("Node IDs must be unique strings or integers")
+                ids[str(key)] = node
+            for axis in ("x", "y"):
+                value = node.get(axis, 0)
+                if not isinstance(value, (int, float)) or not math.isfinite(value) or abs(value) > 1e6:
+                    raise ValueError("Node coordinates must be finite and within the canvas")
+            if "port" in node and (not isinstance(node["port"], int) or not 0 <= node["port"] <= 65535):
+                raise ValueError("Port must be an integer between 0 and 65535")
+            for field in ("ip", "proto"):
+                if field in node and not isinstance(node[field], str):
+                    raise ValueError(f"Node {field} must be text")
+        attached = set()
+        pairs = set()
+        for link in links:
+            if not isinstance(link, dict):
+                raise ValueError("Link must be an object")
+            src, dst = str(link.get("src_id")), str(link.get("dst_id"))
+            if src not in ids or dst not in ids or src == dst:
+                raise ValueError("Link endpoints must reference two existing nodes")
+            if (src, dst) in pairs:
+                raise ValueError("Duplicate link endpoints")
+            pairs.add((src, dst))
+            if link.get("protocol", "C37.118") not in PROTOCOL_COLORS:
+                raise ValueError("Unknown link protocol")
+            agents = link.get("threat_agent_ids", [])
+            if not isinstance(agents, list):
+                raise ValueError("threat_agent_ids must be an array")
+            for agent_id in agents:
+                key = str(agent_id)
+                if key not in ids or ids[key]["node_type"] != NodeType.THREAT_AGENT or key in attached:
+                    raise ValueError("A threat agent must reference one existing threat node and one link")
+                attached.add(key)
 
     # ── Query ────────────────────────────────────────────────────────────────
 
@@ -576,6 +662,8 @@ class TopologyCanvas(QGraphicsView):
         If a ThreatAgent is dropped near a link, snap it to that link
         and mark the link as intercepted.
         """
+        if self._loading or self._snapping:
+            return None
         agent_pos = agent.scenePos()
         SNAP_DIST = 50.0
 
@@ -586,11 +674,21 @@ class TopologyCanvas(QGraphicsView):
             if dist < SNAP_DIST:
                 # Snap position to midpoint of the link
                 mid = QPointF((src.x() + dst.x()) / 2, (src.y() + dst.y()) / 2)
-                agent.setPos(mid)
+                self._snapping = True
+                try:
+                    agent.setPos(mid)
+                finally:
+                    self._snapping = False
+                for other in self._links:
+                    if other is not link:
+                        other.remove_threat_agent(agent)
                 link.add_threat_agent(agent)
                 agent._config["intercepted_link"] = id(link)
                 return link
 
+        for link in self._links:
+            link.remove_threat_agent(agent)
+        agent._config.pop("intercepted_link", None)
         return None
 
     @staticmethod
@@ -698,17 +796,25 @@ class TopologyCanvas(QGraphicsView):
     # ── Signal handlers ───────────────────────────────────────────────────────
 
     def _on_node_double_click(self, node: BaseNode) -> None:
+        if node not in self._nodes or self._sim_running:
+            return
         self._open_config_dialog(node)
 
     def _on_node_right_click(self, node: BaseNode) -> None:
+        if node not in self._nodes or self._sim_running:
+            return
         self._show_node_context_menu(node, QCursor.pos())
         self.signals.node_selected.emit(node)
 
     def _on_link_click(self, link: LinkItem) -> None:
+        if link not in self._links or self._sim_running:
+            return
         self._show_link_context_menu(link, QCursor.pos())
         self.signals.link_selected.emit(link)
 
     def _on_node_moved(self, node: BaseNode) -> None:
+        if node not in self._nodes or self._loading or self._sim_running:
+            return
         # If it's a threat agent, check if it's near a link
         if node.node_type == NodeType.THREAT_AGENT:
             self._snap_threat_to_link(node)
@@ -878,8 +984,10 @@ class TopologyCanvas(QGraphicsView):
 
     def set_simulation_running(self, running: bool) -> None:
         """Visual feedback — mark PMU and proxy nodes as active."""
+        self._sim_running = running
+        self.set_mode("select")
         for node in self._nodes:
+            node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not running)
             if node.node_type in (NodeType.PMU, NodeType.THREAT_AGENT):
                 node._config["running"] = running
-                node._config["active"]  = running
                 node.update()

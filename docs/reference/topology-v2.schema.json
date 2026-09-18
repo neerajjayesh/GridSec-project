@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "topology-v2.schema.json",
+  "title": "GridSec Sim portable topology v2",
+  "description": "Documentation schema for newly saved portable topology files. The application loader does not enforce this schema. Cross-reference integrity requires a separate semantic check.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "nodes",
+    "links"
+  ],
+  "properties": {
+    "format": {
+      "const": "GridSecSim"
+    },
+    "version": {
+      "const": 2
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "node_type",
+        "label",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable identifier. New nodes use UUIDs; migrated legacy IDs can be numeric strings."
+        },
+        "node_type": {
+          "type": "string",
+          "enum": [
+            "CT_VT",
+            "BREAKER",
+            "PMU",
+            "PROTECTION_IED",
+            "BCU",
+            "PDC",
+            "SWITCH",
+            "STATION_HMI",
+            "ENGINEERING_WS",
+            "GATEWAY_RTU",
+            "STATE_PDC",
+            "THREAT_AGENT",
+            "VIRTUAL"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "proto": {
+          "type": "string",
+          "enum": [
+            "UDP",
+            "TCP"
+          ]
+        },
+        "level": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 3
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "attack_type": {
+          "type": "string"
+        },
+        "attack_params": {
+          "type": "object"
+        },
+        "attack_schedule": {
+          "$ref": "#/$defs/schedule"
+        }
+      },
+      "additionalProperties": true
+    },
+    "link": {
+      "type": "object",
+      "required": [
+        "src_id",
+        "dst_id",
+        "protocol",
+        "threat_agent_ids"
+      ],
+      "properties": {
+        "src_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dst_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "C37.118",
+            "DNP3",
+            "Modbus",
+            "IEC104",
+            "GOOSE"
+          ]
+        },
+        "threat_agent_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "schedule": {
+      "type": "object",
+      "properties": {
+        "start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_frames": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero removes the schedule end boundary."
+        }
+      },
+      "required": [
+        "start_frame",
+        "duration_frames"
+      ],
+      "additionalProperties": true
+    }
+  }
+}
+

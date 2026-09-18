@@ -1,38 +1,12 @@
-#!/bin/bash
-cd ~/GridSecSim
-source venv/bin/activate
-
-PROJECT_ROOT=$(pwd)
-export PYTHONPATH="$PROJECT_ROOT"
-
-echo "=== Import Check ==="
-python3 -c "
-import PyQt6
-import matplotlib
-import numpy
-import pyqtgraph
-import cryptography
-print('ALL IMPORTS OK')
-print('  PyQt6:', PyQt6.QtCore.PYQT_VERSION_STR)
-print('  matplotlib:', matplotlib.__version__)
-print('  numpy:', numpy.__version__)
-"
-
-echo ""
-echo "=== C37.118 Codec Test ==="
-python3 protocols/c37118.py
-
-echo ""
-echo "=== Attack Engine Test ==="
-python3 core/attack_engine.py
-
-echo ""
-echo "=== Traffic Filter Test ==="
-python3 core/traffic_filter.py
-
-echo ""
-echo "=== Packet Parser Test ==="
-python3 core/packet_parser.py
-
-echo ""
-echo "ALL CORE TESTS DONE"
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+source ./scripts/python-runtime.sh
+export QT_QPA_PLATFORM=offscreen
+export PYTHONPATH="$PWD"
+"$GRIDSEC_PYTHON" -m compileall -q core gui protocols main.py
+for module in protocols.c37118 protocols.dnp3 protocols.goose protocols.modbus protocols.iec104 core.attack_engine core.traffic_filter core.packet_parser; do
+    "$GRIDSEC_PYTHON" -m "$module"
+done
+"$GRIDSEC_PYTHON" test_regression.py
+"$GRIDSEC_PYTHON" -m unittest discover -s tests -v

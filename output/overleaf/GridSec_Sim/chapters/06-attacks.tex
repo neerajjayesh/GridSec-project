@@ -1,0 +1,102 @@
+\chapter{Attack engine reference}\label{chapter-6}
+\Needspace{10\baselineskip}
+\section*{Execution contract}
+\pdfbookmark[1]{Execution contract}{chapter-6-s1}
+\code{\seqsplit{AttackEngine}} holds one instance of each module and selects one active type. \code{\seqsplit{set\_attack(AttackType,}\ \seqsplit{params)}} disables the previous module and enables the selected one. Module parameters and internal state generally persist between selections. \code{\seqsplit{NONE}} is the default passthrough state.
+
+\code{\seqsplit{apply(frame\_dict)}} returns \code{\seqsplit{(frame\_dict,}\ \seqsplit{was\_modified,}\ \seqsplit{was\_dropped)}}. Modules operate on decoded C37.118 data frames. They do not intercept GOOSE/DNP3/Modbus traffic, transmit exploit payloads to unrelated devices, or implement packet-routing policies.
+
+Phasor indices are zero-based: \code{\seqsplit{0}} is phase A in the default generator. Magnitudes use the generator's voltage units, frequency is Hz, angles in decoded frames are radians, and the angle-override parameter is degrees.
+
+\Needspace{10\baselineskip}
+\section*{Parameters}
+\pdfbookmark[1]{Parameters}{chapter-6-s2}
+These are \textbf{engine parameter names}, accepted by \code{\seqsplit{set\_params()}}. Unknown keys are generally ignored, not rejected. UI ranges may be narrower than core setters.
+
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.20000\linewidth-4.000pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-6.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.46000\linewidth-9.200pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Type & \color{white}\bfseries Parameters and defaults & \color{white}\bfseries Behavior and core constraints \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Type & \color{white}\bfseries Parameters and defaults & \color{white}\bfseries Behavior and core constraints \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{NOISE}} & \code{\seqsplit{noise\_std=1.0}}, \code{\seqsplit{add\_freq\_noise=false}}, \code{\seqsplit{freq\_std=0.05}} & Independent Gaussian noise on all magnitudes; optional frequency noise. Uses \code{\seqsplit{noise\_std}}, not \code{\seqsplit{std\_dev}}. Magnitudes are not clamped to zero. \\
+\code{\seqsplit{RAMP}} & \code{\seqsplit{ramp\_rate=0.05}}, \code{\seqsplit{target=\textquotesingle{}magnitude\textquotesingle{}}}, \code{\seqsplit{direction=\textquotesingle{}up\textquotesingle{}}}, \code{\seqsplit{phasor\_idx=-1}} & Adds/subtracts rate × module frame count. Target: magnitude/frequency; negative index selects all phasors. Magnitudes are clamped at zero. \\
+\rowcolor{pale}
+\code{\seqsplit{PULSE}} & \code{\seqsplit{amplitude=30.0}}, \code{\seqsplit{interval=30}}, \code{\seqsplit{duration\_frames=3}}, \code{\seqsplit{target=\textquotesingle{}magnitude\textquotesingle{}}}, \code{\seqsplit{phasor\_idx=-1}} & Spike when \code{\seqsplit{frame\_count}\ \seqsplit{\%}\ \seqsplit{interval}\ \seqsplit{<}\ \seqsplit{duration\_frames}}. Interval/duration are clamped to at least 1. Amplitude units follow target. \\
+\code{\seqsplit{FREQUENCY\_OVERRIDE}} & \code{\seqsplit{target\_freq=60.0}} & Replaces FREQ; setter clamps to 45-65 Hz. \\
+\rowcolor{pale}
+\code{\seqsplit{MAGNITUDE\_OVERRIDE}} & \code{\seqsplit{phasor\_idx=0}}, \code{\seqsplit{value=0.0}} & Replaces one magnitude; out-of-range index passes unchanged. \\
+\code{\seqsplit{ANGLE\_OVERRIDE}} & \code{\seqsplit{phasor\_idx=0}}, \code{\seqsplit{angle\_deg=0.0}} & Replaces one angle after degree-to-radian conversion; invalid index passes unchanged. \\
+\rowcolor{pale}
+\code{\seqsplit{REPLAY}} & \code{\seqsplit{buffer\_size=30}} & Records N eligible frames unchanged, then loops deep copies including old timestamps. Buffer size is at least 1. \code{\seqsplit{recording}} and \code{\seqsplit{buffered}} are readback fields, not writable parameters. \\
+\code{\seqsplit{DELAY}} & \code{\seqsplit{delay\_ms=100.0}} & Sleeps on the proxy thread for each eligible data frame. Setter clamps to 0-5000 ms. No content change/drop flag. \\
+\rowcolor{pale}
+\code{\seqsplit{DROP}} & \code{\seqsplit{drop\_percent=20.0}} & Independent random drop decision; setter clamps to 0-100\%. \\
+\code{\seqsplit{SCALE}} & \code{\seqsplit{scale\_factor=1.5}}, \code{\seqsplit{also\_scale\_freq=false}} & Multiplies all magnitudes and optionally frequency. Core setter does not enforce the 0-10 range mentioned in its docstring. \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Timing and state}
+\pdfbookmark[1]{Timing and state}{chapter-6-s3}
+Ramp is measured per module invocation, not per wall-clock second. Pulse starts with module frame count 1, so its first window is not a zero-based sequence. A duration at least as large as its interval makes every eligible invocation a pulse.
+
+Replay requires N frames to fill before modifications begin. At an uninterrupted 30 eligible frames/s, a 90-frame buffer takes approximately three seconds. Restarting the simulation does not automatically clear the engine's buffer. Applying a new \code{\seqsplit{buffer\_size}} recreates it; \code{\seqsplit{reset\_attack\_state()}} clears all module state.
+
+Delay reduces proxy throughput because it blocks that stream's processing worker. The PMU may continue generating faster than processing, creating socket backlog or loss. Delay does not increment \code{\seqsplit{modified\_packets}} or produce attacked incidents by itself.
+
+\Needspace{10\baselineskip}
+\section*{Scheduling}
+\pdfbookmark[1]{Scheduling}{chapter-6-s4}
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={PYTHON}]
+engine.set_attack(AttackType.SCALE, {"scale_factor": 2.0})
+engine.reset_stats()
+engine.reset_attack_state()
+engine.set_schedule(start_frame=2, duration_frames=2)
+\end{lstlisting}
+\end{minipage}\par
+The engine increments \code{\seqsplit{total\_packets}} before checking the window. For a positive duration, the active condition is:
+
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={TEXT}]
+start_frame <= total_packets < start_frame + duration_frames
+\end{lstlisting}
+\end{minipage}\par
+A duration of zero removes the upper bound. \code{\seqsplit{start\_frame=0,}\ \seqsplit{duration\_frames=0}} is immediate and indefinite. With start 2 and duration 2, calls 1-4 produce modification flags \code{\seqsplit{[false,}\ \seqsplit{true,}\ \seqsplit{true,}\ \seqsplit{false]}}. To get N complete clean eligible frames first, use start \code{\seqsplit{N+1}}.
+
+Counters are cumulative since the last statistics reset. Arming a schedule during a run uses that existing counter, not a delay relative to the moment you clicked Enable. Disabled/schedule-inactive behavior and module-specific counters also mean a ramp's local frame count is distinct from the engine counter. Use both resets for a controlled repeat.
+
+Start/stop does not reset scheduling. The GUI may show "Waiting" after a finite window has ended. A selected attack shown in the dashboard can be enabled but outside its active window.
+
+\Needspace{10\baselineskip}
+\section*{Traffic filtering}
+\pdfbookmark[1]{Traffic filtering}{chapter-6-s5}
+\code{\seqsplit{TrafficFilter}} decides whether data enters the engine; nonmatching data is still forwarded unchanged. It is not a firewall.
+
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={PYTHON}]
+from core.traffic_filter import TrafficFilter
+
+traffic_filter = TrafficFilter()
+traffic_filter.add_rule(dst_ip="127.0.0.1", dst_port=4713, proto="UDP")
+\end{lstlisting}
+\end{minipage}\par
+Rule fields are \code{\seqsplit{src\_ip}}, \code{\seqsplit{dst\_ip}}, \code{\seqsplit{src\_port}}, \code{\seqsplit{dst\_port}}, \code{\seqsplit{proto}}, \code{\seqsplit{label}}, and \code{\seqsplit{enabled}}. \code{\seqsplit{None}} is a wildcard. Specified fields combine with AND; enabled rules combine with OR. Empty rule list matches everything; a nonempty list containing only disabled rules matches nothing. IP matching is string equality, not CIDR/subnet matching.
+
+In UDP proxy metadata, destination means the proxy's \textbf{forwarding destination}, not its listen address. The generated PMU source port is an ephemeral socket port. The desktop constructs an empty filter and does not expose a working rule editor or connect selected-link scope to these rules.
+
+\Needspace{10\baselineskip}
+\section*{Counters and interpretation}
+\pdfbookmark[1]{Counters and interpretation}{chapter-6-s6}
+\code{\seqsplit{total\_packets}} counts engine calls. \code{\seqsplit{modified\_packets}} increments when a result is modified; \code{\seqsplit{dropped\_packets}} increments when dropped. Non-data frames and filter bypasses do not enter the engine. Reset Stats clears these and module state through the GUI, but does not clear incident history.
+
+A modification flag expresses module behavior, not necessarily a numerical difference: overriding a value with the same value can still count as modified. Rebuild failures and downstream send errors require separate inspection.
+
+Use \hyperref[reference-files]{inspect\_frame.py} for a deterministic example. Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/attack_engine.py}{engine} (\code{\seqsplit{core/attack\_engine.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/traffic_filter.py}{filter} (\code{\seqsplit{core/traffic\_filter.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pdc_proxy.py}{proxy} (\code{\seqsplit{core/pdc\_proxy.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/attack_panel.py}{panel} (\code{\seqsplit{gui/attack\_panel.py}}).
+

@@ -1,0 +1,116 @@
+\chapter{Integrations and exports}\label{chapter-9}
+\Needspace{10\baselineskip}
+\section*{Integration status}
+\pdfbookmark[1]{Integration status}{chapter-9-s1}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Path & \color{white}\bfseries Current status \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Path & \color{white}\bfseries Current status \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Main proxy  >  UDP PDC destination & Desktop-wired; external receiver setup and interoperability remain your responsibility \\
+Incident JSON/CSV & Desktop export methods exist and receive proxy records \\
+\rowcolor{pale}
+STIX & Exporter exists; experimental representation and taxonomy mappings \\
+PCAP writer & Core implementation; GUI start/stop methods and raw-byte delivery are incomplete \\
+\rowcolor{pale}
+Syslog/CEF & Core sender; GUI convenience-method wiring is incomplete \\
+REST & Core server; GUI convenience methods and remote engine hooks are incomplete \\
+\rowcolor{pale}
+Named vendor integrations & Generic format/interface possibilities, not tested product connectors \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Connect a PDC receiver}
+\pdfbookmark[1]{Connect a PDC receiver}{chapter-9-s2}
+The desktop sends UDP. Configure your laboratory receiver for the same transport and the generated C37.118 layout: ID 1, three float polar phasors, one float analog, one digital word, 50 Hz nominal, 30 frames/s. Match the receiver to the generator's CFG-2 and data layout rather than assuming every receiver can infer it automatically.
+
+\begin{enumerate}
+\item Start the receiver on a chosen lab address/UDP port.
+\item Stop GridSec simulation, select the first \textbf{Local PDC}, and set its IP/port to that receiver.
+\item Keep the first PMU's listen port distinct from the receiver port when both use loopback.
+\item Validate and start a clean baseline.
+\item Confirm incoming datagrams and accepted measurements at the receiver.
+\item Apply a controlled transformation and verify the receiver's values, timestamps, and invalid-frame indicators.
+\end{enumerate}
+
+openPDC is an intended receiver use case, but this review did not test an openPDC installation. A TCP-only receiver will not receive the GUI's UDP stream. The core TCP proxy does not turn the UDP generator into a complete command-driven PMU.
+
+CFG-2 is sent once at PMU startup. If the receiver missed it, start the receiver first and restart the experiment. For modified data, account for the current parser digital-word mismatch described in \hyperref[chapter-7]{Protocols}.
+
+\Needspace{10\baselineskip}
+\section*{PCAP and Wireshark}
+\pdfbookmark[1]{PCAP and Wireshark}{chapter-9-s3}
+\code{\seqsplit{PcapWriter}} creates classic Ethernet-linktype PCAP files with microsecond timestamps. UDP/TCP methods synthesize Ethernet/IP/transport headers around supplied application bytes. GOOSE accepts a supplied raw Ethernet frame. This is generated capture material, not a passive copy of actual NIC traffic or a complete TCP handshake.
+
+Regular-file mode opens the destination with \code{\seqsplit{wb}}, replacing existing content. FIFO mode is POSIX-only, replaces an existing path with a named pipe, and waits for a reader in a background thread. Use a new dedicated output path. Check \code{\seqsplit{is\_active}} and \code{\seqsplit{error}}; construction/start messages do not guarantee successful capture.
+
+Current desktop limitations are two independent issues:
+
+\begin{enumerate}
+\item Capture buttons call \code{\seqsplit{start\_pcap\_only()}}/\code{\seqsplit{stop\_pcap\_only()}}, absent from \code{\seqsplit{IntegrationManager}}.
+\item The main window retrieves \code{\seqsplit{record.raw\_bytes}}, but \code{\seqsplit{PacketRecord.\_\_slots\_\_}} has no such field. The resulting empty bytes skip PCAP writes and appear as packet length zero.
+\end{enumerate}
+
+\par\noindent\begin{minipage}{\linewidth}
+The \hyperref[reference-files]{offline frame example} can create a real sample PCAP through the core writer:
+\begin{lstlisting}[title={POWERSHELL}]
+.\.venv\Scripts\python.exe docs/examples/inspect_frame.py --pcap sample-frame.pcap
+\end{lstlisting}
+\end{minipage}\par
+Open the file in Wireshark. Its addresses are synthetic documentation values. For a genuine live-network trace, capture the relevant loopback/lab interface independently and compare it with the application records. The GUI's Wireshark launcher can find a native executable or attempt WSL on Windows, but a successful launcher does not fix capture wiring.
+
+\Needspace{10\baselineskip}
+\section*{Syslog/CEF}
+\pdfbookmark[1]{Syslog/CEF}{chapter-9-s4}
+The core sender formats a CEF message inside an RFC-5424-style syslog envelope. UDP is default; TCP sends newline-terminated messages. Default destination is \code{\seqsplit{127.0.0.1:514}}, facility LOCAL7.
+
+When configured and started programmatically, the manager sends attacked, dropped, and invalid records; it does not send clean records. Severity is derived from status: clean INFO, attacked HIGH, dropped MEDIUM, invalid LOW. CEF numeric levels are 0, 7, 5, and 3 respectively.
+
+For an authorized collector integration, use \code{\seqsplit{configure\_syslog()}} and \code{\seqsplit{start()}} on the core manager, then call \code{\seqsplit{record\_packet()}} as records arrive. Check collector receipt independently: UDP socket creation and \code{\seqsplit{sendto()}} success do not acknowledge ingestion. The sender provides no TLS, durable buffering, retry queue, or complete escaping of arbitrary user-controlled CEF fields.
+
+The GUI's Syslog Test/Enable/Disable buttons call missing manager convenience methods. \code{\seqsplit{patch\_mgr.py}} is an old source-rewriting helper, not a supported installation or runtime step.
+
+\Needspace{10\baselineskip}
+\section*{JSON and CSV}
+\pdfbookmark[1]{JSON and CSV}{chapter-9-s5}
+JSON export includes session ID, export time, and retained incidents with original/modified fields. CSV contains nine event-summary columns. Both include clean records because the manager creates an Incident for every callback record, not only attacks.
+
+Export before memory rotation or application exit. With roughly 30 records/s, 10,000 incident entries represent about 5.6 minutes, depending on configuration records and actual processing. These are retained records, not a durable experiment archive.
+
+\Needspace{10\baselineskip}
+\section*{STIX}
+\pdfbookmark[1]{STIX}{chapter-9-s6}
+The exporter labels output as STIX 2.1 and builds identity, campaign, attack-pattern, indicator, course-of-action, relationship, and observed-data objects. Observed-data samples only the last 20 attacked incidents; it does not reproduce the full history.
+
+The output uses custom ICS fields and static ATT\&CK mappings. It has not been validated against a strict STIX validator or an external platform during this review. Broad port indicators do not independently identify an attack, and repository technique mappings require review before use as authoritative classifications. Retain JSON/CSV as the primary experiment record.
+
+\Needspace{10\baselineskip}
+\section*{Core lifecycle example}
+\pdfbookmark[1]{Core lifecycle example}{chapter-9-s7}
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={PYTHON}]
+from core.integration_manager import IntegrationManager
+
+manager = IntegrationManager()
+manager.configure_rest_api(host="127.0.0.1", port=18080)
+results = manager.start()
+try:
+    # Your application supplies records through manager.record_packet(...).
+    # Keep this process alive while clients use the server.
+    print(results)
+finally:
+    manager.stop()
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+This fragment demonstrates lifecycle only; it exits immediately without a host event loop. Use \hyperref[reference-files]{serve\_api.py} for a runnable version. Start configured integrations once, inspect results, and stop them explicitly. Disconnect SSE clients before shutdown.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{manager/exporters} (\code{\seqsplit{core/integration\_manager.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pcap_writer.py}{PCAP writer} (\code{\seqsplit{core/pcap\_writer.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/integration_panel.py}{integration panel} (\code{\seqsplit{gui/integration\_panel.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pdc_proxy.py}{proxy} (\code{\seqsplit{core/pdc\_proxy.py}}).\par}
+\end{minipage}\par
+

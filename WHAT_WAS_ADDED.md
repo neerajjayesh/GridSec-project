@@ -1,5 +1,7 @@
 # What Was Added to GridSec Sim
 
+> **Historical enhancement notes:** For current behavior, installation, integration status, and verification, see the [documentation index](docs/index.md) and [known limitations](docs/known-limitations.md).
+
 This file lists the enhancements added during the current improvement pass and shows where to find them in the application.
 
 ## Quick way to see the additions

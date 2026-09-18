@@ -1,0 +1,91 @@
+# Protocol reference
+
+[Documentation index](index.md)
+
+This reference describes repository behavior. Protocol names identify the intended wire formats; support here is not a statement of full standards conformance or vendor interoperability.
+
+## Support matrix
+
+| Protocol | Codec/helpers | Live implementation | Main attack path |
+|---|---|---|---|
+| C37.118 | Data, CFG-2, command encoding/decoding, CRC | UDP PMU + UDP proxy in GUI; TCP proxy mode in core | Yes, data frames |
+| GOOSE | Ethernet framing, BER dataset helpers and decoding | Linux raw Ethernet publisher | No |
+| DNP3 | Link framing/CRC, transport/app helpers, analog/binary objects | UDP outstation-style simulator | No |
+| Modbus TCP | MBAP/PDU helpers, register conversion and decoding | TCP server and polling master | No |
+| IEC104 | APDU and I/U-frame helpers, frame decoding | No live desktop simulator | No |
+
+Auxiliary simulators start once per desktop run, independently of how many protocol-specific nodes exist. They receive original PMU values. A red C37.118 waveform does not establish modified values on these other protocols.
+
+## C37.118 implementation
+
+`C37118Codec` uses big-endian fields and float32 polar phasors. Default data representation is magnitude/angle pairs, float32 frequency and ROCOF, float32 analog channels, and unsigned 16-bit digital words. Station configuration is constructor-based, not dynamically negotiated for arbitrary incoming devices.
+
+### Generated data frame
+
+| Field | Bytes |
+|---|---:|
+| SYNC | 2 |
+| FRAMESIZE | 2 |
+| IDCODE | 2 |
+| SOC | 4 |
+| FRACSEC | 4 |
+| STAT | 2 |
+| Phasors | 8 × phasor count |
+| FREQ | 4 |
+| DFREQ | 4 |
+| Analog | 4 × analog count |
+| Digital | 2 × digital-word count |
+| CRC | 2 |
+
+Total encoded size is `26 + 8P + 4A + 2D` bytes. The GUI generator's three phasors, one analog, and one digital word produce **56-byte data frames**. Use encoded byte length/FRAMESIZE when checking this; the codec's private `_data_frame_size` estimate omits STAT.
+
+The PMU sends a CFG-2 frame once at startup, then generates data at 30 frames/s in the GUI. Its model includes slow frequency variation around 50 Hz and small voltage variations around 120 V, with three nominal phase angles. It is synthetic telemetry, not an electrical solver.
+
+Data decoding checks CRC and structural availability using configured channel counts. It does not adapt its layout from a received CFG-2 frame. The parser recognizes configuration variants, but the implementation's main configuration encoder/decoder is CFG-2-oriented. Command helpers do not establish a complete bidirectional PMU/PDC command session.
+
+The parser's active codec defaults to zero digital words, while the PMU creates one. `PDCProxy(codec=...)` stores the codec without configuring the global parser. For embedded experiments, explicitly call `packet_parser.set_codec()` with matching counts before parsing/rebuilding. The unmodified path preserves original bytes; the modified desktop path can lose the digital word.
+
+### TCP boundary
+
+The core proxy can accept TCP and extract length-delimited frames before forwarding on a TCP connection. The GUI always creates UDP components, and its PMU generator is UDP-only. Changing a node's Transport field to TCP does not establish a TCP test. Reverse command forwarding and compatibility with a receiver's command handshake must not be assumed.
+
+## GOOSE
+
+The codec builds Ethernet frames with EtherType `0x88B8`, a GOOSE application header, and BER-encoded values. The desktop publisher uses App ID `0x0001` and a dataset ordered as Va, Vb, Vc, frequency, trip, breaker-closed. It includes sequence/state counters and a 2000 ms time-allowed-to-live setting.
+
+Live transmission uses Linux `AF_PACKET` and requires an appropriate raw-socket permission/interface. It is unavailable in native Windows; startup can produce a worker-thread exception for the missing socket family. GOOSE is Layer 2 traffic: the IED node's displayed port 102 is metadata, not a GOOSE TCP port.
+
+## DNP3
+
+`DNP3DataLink` encodes link frames and inserts/verifies header and 16-byte-block CRCs. Higher-level helpers build transport/application payloads, floating analog inputs, binary inputs, read requests, and unsolicited responses.
+
+The desktop simulator requests UDP bind `0.0.0.0:20000` and sends to `127.0.0.1:20000` at 1 Hz. It falls back to an ephemeral local bind port if binding fails. It maintains sender/listener workers and handles supported read requests. The source outstation address is 1.
+
+Analog measurements are Va, Vb, Vc, frequency, active power, and reactive power; binaries are trip and breaker-closed. This is a limited simulator, not a complete outstation implementing all object groups, authentication, or production session behavior.
+
+## Modbus TCP
+
+The implementation provides a TCP register server and local polling master. The server handles read input registers (function 04), read holding registers (03), and write single register (06), returning supported exception responses for other cases. It has ten input registers and sixteen holding registers.
+
+Input addresses are zero-based PDU offsets:
+
+| Offset | Value | Decode register by dividing by |
+|---:|---|---:|
+| 0 | Va | 10 |
+| 1 | Vb | 10 |
+| 2 | Vc | 10 |
+| 3 | Frequency | 100 |
+| 4 | Active power | 1 |
+| 5 | Reactive power | 1 |
+| 6 | Ia | 10 |
+| 7 | Ib | 10 |
+| 8 | Ic | 10 |
+| 9 | Power factor | 1000 |
+
+Values are rounded and clamped to unsigned 16-bit range. They are scaled integers, not pairs of registers containing IEEE float32. GUI defaults are `127.0.0.1:502`, polling at 1 Hz. Bind failure attempts port `requested_port + 10000`, normally 10502; inspect actual status/logs.
+
+## IEC104
+
+`IEC104Frame` and helpers support APDU representation, STARTDT/TESTFR U-frames, I-frame construction, and frame decoding. There is no desktop IEC104 socket worker, station model, or attack pipeline. The canvas label is available for diagramming.
+
+Source: [C37.118](../protocols/c37118.py), [GOOSE](../protocols/goose.py), [DNP3](../protocols/dnp3.py), [Modbus](../protocols/modbus.py), [IEC104](../protocols/iec104.py), [simulator wiring](../gui/main_window.py).

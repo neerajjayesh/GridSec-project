@@ -1,0 +1,122 @@
+\chapter{Getting started}\label{chapter-2}
+\Needspace{10\baselineskip}
+\section*{Obtain the source}
+\pdfbookmark[1]{Obtain the source}{chapter-2-s1}
+\par\noindent\begin{minipage}{\linewidth}
+The project repository is \href{https://github.com/neerajjayesh/GridSec-project}{neerajjayesh/GridSec-project}.
+\begin{lstlisting}[title={TEXT}]
+git clone https://github.com/neerajjayesh/GridSec-project.git
+cd GridSec-project
+\end{lstlisting}
+\end{minipage}\par
+If you already have the source, open the directory containing \code{\seqsplit{main.py}} and continue with the installation steps below.
+
+\Needspace{10\baselineskip}
+\section*{Requirements}
+\pdfbookmark[1]{Requirements}{chapter-2-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Requirement & \color{white}\bfseries Details \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Requirement & \color{white}\bfseries Details \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Python & Project baseline: 3.10+. Review environment: Windows with Python 3.14.6. \\
+Display & Qt-compatible desktop; minimum window 1200 × 700, initial size 1600 × 950 \\
+\rowcolor{pale}
+Packages & Install all entries in \code{\seqsplit{requirements.txt}} \\
+Source & Keep \code{\seqsplit{core/}}, \code{\seqsplit{gui/}}, \code{\seqsplit{protocols/}}, stylesheet, and demo beside \code{\seqsplit{main.py}} \\
+\rowcolor{pale}
+Network & Local UDP/TCP sockets; isolated laboratory for external receivers \\
+Optional tools & Wireshark/capture reader and an independently configured PDC \\
+\end{longtable}
+\endgroup
+
+Windows supports the Qt interface and main UDP workflow. GOOSE uses Linux \code{\seqsplit{AF\_PACKET}}; native Windows does not support that publisher. Linux/WSL GOOSE also depends on raw socket permissions and the interface. The core experiment does not require elevating the desktop application.
+
+\Needspace{10\baselineskip}
+\section*{Windows installation}
+\pdfbookmark[1]{Windows installation}{chapter-2-s3}
+\par\noindent\begin{minipage}{\linewidth}
+Open PowerShell in the directory containing \code{\seqsplit{main.py}}:
+\begin{lstlisting}[title={POWERSHELL}]
+py -3 --version
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -c "import PyQt6, numpy, matplotlib; print('Core imports OK')"
+.\.venv\Scripts\python.exe main.py --demo
+\end{lstlisting}
+\end{minipage}\par
+Calling the interpreter directly avoids a PowerShell activation-policy change. Use an existing working environment if you already have one. Do not reuse an environment copied from another OS or machine.
+
+\Needspace{10\baselineskip}
+\section*{Linux or WSL installation}
+\pdfbookmark[1]{Linux or WSL installation}{chapter-2-s4}
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={BASH}]
+python3 --version
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -c "import PyQt6, numpy, matplotlib; print('Core imports OK')"
+.venv/bin/python main.py --demo
+\end{lstlisting}
+\end{minipage}\par
+If environment creation fails, install your distribution's Python virtual-environment package. Qt may also need XCB, OpenGL, EGL, font, and D-Bus libraries.
+
+The bundled \code{\seqsplit{install.sh}} targets Ubuntu 22.04 and creates \code{\seqsplit{venv/}}. It invokes \code{\seqsplit{sudo}\ \seqsplit{apt-get}}, selects Python, installs system packages, and installs requirements. Review it for other distributions. Its system-package block suppresses failures with \code{\seqsplit{||}\ \seqsplit{true}}; a success banner alone does not verify the installation.
+
+\par\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[title={BASH}]
+bash install.sh
+venv/bin/python main.py --demo
+\end{lstlisting}
+\end{minipage}\par
+\Needspace{10\baselineskip}
+\section*{Display setup}
+\pdfbookmark[1]{Display setup}{chapter-2-s5}
+On Windows, use a normal desktop session. Under WSL, use an available WSLg display or a configured display server. Preserve working \code{\seqsplit{DISPLAY}} and \code{\seqsplit{WAYLAND\_DISPLAY}} values.
+
+On Linux, \code{\seqsplit{main.py}} sets \code{\seqsplit{QT\_QPA\_PLATFORM=offscreen}} when neither display variable exists, unless a platform was already set. Offscreen mode supports checks but produces no visible window. It is not a headless simulation service.
+
+\Needspace{10\baselineskip}
+\section*{First experiment}
+\pdfbookmark[1]{First experiment}{chapter-2-s6}
+\begin{enumerate}
+\item Launch with \code{\seqsplit{--demo}}; it loads a topology without starting simulation.
+\item Choose \textbf{Scenarios  >  Clean Baseline}.
+\item Click \textbf{Validate}; the demo has a PMU, Local PDC, and attached Threat Agent.
+\item Click \textbf{Run} (\code{\seqsplit{F5}}). Check packet totals and proxy status.
+\item Inspect magnitude, frequency, and angle. Clean values overlap, apart from possible startup/configuration-record artifacts.
+\item Click \textbf{Stop} (\code{\seqsplit{F6}}).
+\item Choose \textbf{Scenarios  >  Noisy Sensor}, then run again. Modified magnitude varies around the original.
+\item Stop, save the topology, and export incident JSON/CSV from the Integrations export tab.
+\end{enumerate}
+
+The demo forwards UDP to \code{\seqsplit{127.0.0.1:4713}}. A Local PDC node represents a destination; it does not launch a PDC receiver. The GUI can display proxy results with no listener. See \hyperref[chapter-9]{Integrations} for receipt verification.
+
+\Needspace{10\baselineskip}
+\section*{Installation verification}
+\pdfbookmark[1]{Installation verification}{chapter-2-s7}
+\par\noindent\begin{minipage}{\linewidth}
+Windows:
+\begin{lstlisting}[title={POWERSHELL}]
+.\.venv\Scripts\python.exe test_regression.py
+.\.venv\Scripts\python.exe docs/examples/inspect_frame.py
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}
+Linux/WSL:
+\begin{lstlisting}[title={BASH}]
+.venv/bin/python test_regression.py
+.venv/bin/python docs/examples/inspect_frame.py
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+The regression suite uses offscreen Qt. The documentation example verifies a deterministic transformation without network traffic. See \hyperref[chapter-15]{Testing} for results and coverage limits, then \hyperref[chapter-3]{User guide} to build an experiment.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/main.py}{entry point} (\code{\seqsplit{main.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/requirements.txt}{requirements} (\code{\seqsplit{requirements.txt}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/install.sh}{installer} (\code{\seqsplit{install.sh}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/mitm-demo-topology.json}{demo} (\code{\seqsplit{mitm-demo-topology.json}}).\par}
+\end{minipage}\par
+

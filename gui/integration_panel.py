@@ -20,12 +20,12 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QUrl
+from PyQt6.QtGui import QFont, QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QCheckBox, QSpinBox,
-    QComboBox, QTextEdit, QFrame, QTabWidget,
+    QComboBox, QTextEdit, QFrame, QTabWidget, QStackedWidget,
     QFileDialog, QGroupBox, QScrollArea, QSizePolicy,
     QMessageBox, QApplication,
 )
@@ -259,6 +259,13 @@ class CaptureTab(QWidget):
     def _start_capture(self):
         path     = self._path_edit.text().strip()
         use_fifo = self._fifo_cb.isChecked()
+        if not use_fifo and os.path.isfile(path):
+            answer = QMessageBox.question(
+                self, "Replace Capture?", "This file already exists. Replace its contents?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self._mgr.configure_pcap(path=path, use_fifo=use_fifo)
         result = self._mgr.start_pcap_only()
         if "error" in result.get("pcap", "").lower():
@@ -269,6 +276,8 @@ class CaptureTab(QWidget):
             self._status_lbl.setStyleSheet(_STATUS_ON)
             self._start_btn.setEnabled(False)
             self._stop_btn.setEnabled(True)
+            self._path_edit.setEnabled(False)
+            self._fifo_cb.setEnabled(False)
 
     def _stop_capture(self):
         self._mgr.stop_pcap_only()
@@ -276,10 +285,15 @@ class CaptureTab(QWidget):
         self._status_lbl.setStyleSheet(_STATUS_OFF)
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
+        self._path_edit.setEnabled(True)
+        self._fifo_cb.setEnabled(os.name != "nt")
 
     def _open_wireshark(self):
-        path = self._path_edit.text().strip()
+        path = self._mgr.pcap_path or self._path_edit.text().strip()
         use_fifo = self._fifo_cb.isChecked()
+        if not os.path.exists(path):
+            QMessageBox.information(self, "No Capture Yet", "Start Capture first, then run the simulation.")
+            return
         try:
             native_wireshark = shutil.which("wireshark") or shutil.which("wireshark.exe")
             if native_wireshark:
@@ -293,7 +307,7 @@ class CaptureTab(QWidget):
                 raise FileNotFoundError("Wireshark executable was not found")
             self._status_lbl.setText("● Wireshark launch requested")
             self._status_lbl.setStyleSheet(_STATUS_ON)
-        except FileNotFoundError:
+        except OSError:
             QMessageBox.warning(self, "Wireshark",
                 "Wireshark not found.\n"
                 "Install with: sudo apt install wireshark (WSL/Linux)\n"
@@ -301,6 +315,9 @@ class CaptureTab(QWidget):
                 f"Or copy command:\n{self._ws_cmd.text()}")
 
     def update_stats(self):
+        if self._mgr and self._mgr._pcap and self._mgr._pcap.error:
+            self._status_lbl.setText(f"● Capture error: {self._mgr._pcap.error}")
+            self._status_lbl.setStyleSheet(_STATUS_ERR)
         if self._mgr and self._mgr.pcap_packet_count > 0:
             self._pkt_lbl.setText(f"Packets: {self._mgr.pcap_packet_count:,}")
 
@@ -429,7 +446,7 @@ class SyslogTab(QWidget):
         port  = self._port.value()
         proto = self._proto.currentText()
         self._mgr.configure_syslog(host=host, port=port, protocol=proto)
-        result = self._mgr.start_syslog_only()
+        result = self._mgr.start_syslog_only()["syslog"]
         if "error" in result.lower():
             self._status_lbl.setText(f"● {result}")
             self._status_lbl.setStyleSheet(_STATUS_ERR)
@@ -471,7 +488,7 @@ class RestAPITab(QWidget):
         grid = QGridLayout()
         grid.setSpacing(8)
         grid.addWidget(_lbl("Listen IP:"), 0, 0)
-        self._host = QLineEdit("0.0.0.0")
+        self._host = QLineEdit("127.0.0.1")
         self._host.setStyleSheet(_INPUT)
         grid.addWidget(self._host, 0, 1)
         grid.addWidget(_lbl("Port:"), 1, 0)
@@ -561,12 +578,12 @@ class RestAPITab(QWidget):
         host = self._host.text().strip()
         port = self._port.value()
         self._mgr.configure_rest_api(host=host, port=port)
-        result = self._mgr.start_rest_only()
+        result = self._mgr.start_rest_only()["rest_api"]
         if "error" in result.lower() or "failed" in result.lower():
             self._status_lbl.setText(f"● {result}")
             self._status_lbl.setStyleSheet(_STATUS_ERR)
         else:
-            url = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}"
+            url = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{self._mgr.api_port}"
             self._status_lbl.setText(f"● Serving at {url}/api/v1/")
             self._status_lbl.setStyleSheet(_STATUS_ON)
             self._key_edit.setText(self._mgr.api_key)
@@ -588,7 +605,8 @@ class RestAPITab(QWidget):
     def _open_browser(self):
         url = self._url_base.text()
         try:
-            subprocess.Popen(["xdg-open", url])
+            if not QDesktopServices.openUrl(QUrl(url)):
+                raise OSError("No browser is available")
         except Exception:
             QApplication.clipboard().setText(url)
             QMessageBox.information(self, "Open Browser",
@@ -992,9 +1010,12 @@ class IntegrationPanel(QWidget):
         h_layout.addStretch()
         layout.addWidget(header)
 
-        # Tabs
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
+        # A single selector avoids clipped nested tab bars on smaller screens.
+        selector = QComboBox()
+        selector.setAccessibleName("Integration section")
+        tabs = QStackedWidget()
+        layout.addWidget(selector)
+        selector.currentIndexChanged.connect(tabs.setCurrentIndex)
 
         self._capture_tab = CaptureTab(self._mgr)
         self._syslog_tab  = SyslogTab(self._mgr)
@@ -1002,11 +1023,19 @@ class IntegrationPanel(QWidget):
         self._export_tab  = ExportTab(self._mgr)
         self._guides_tab  = GuidesTab()
 
-        tabs.addTab(self._capture_tab, "Capture")
-        tabs.addTab(self._syslog_tab,  "Syslog/CEF")
-        tabs.addTab(self._rest_tab,    "REST API")
-        tabs.addTab(self._export_tab,  "Export")
-        tabs.addTab(self._guides_tab,  "Guides")
+        for name, page in (
+            ("Capture — Wireshark / PCAP", self._capture_tab),
+            ("Syslog / CEF", self._syslog_tab),
+            ("REST API", self._rest_tab),
+            ("Export incident reports", self._export_tab),
+            ("Connection guides", self._guides_tab),
+        ):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setWidget(page)
+            tabs.addWidget(scroll)
+            selector.addItem(name)
 
         layout.addWidget(tabs)
 

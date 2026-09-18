@@ -311,7 +311,13 @@ class WaveformViewer(QWidget):
 
     def push_frame_from_record(self, record) -> None:
         """Convenience — push from a PDCProxy PacketRecord."""
-        self.push_frame(record.original, record.modified)
+        if record.original.get("frame_type") != "data":
+            return
+        if not record.forwarded:
+            missing = {"phasors": [(float("nan"), float("nan"))], "freq": float("nan")}
+            self.push_frame(record.original, missing)
+        else:
+            self.push_frame(record.original, record.modified)
 
     # ── Private ───────────────────────────────────────────────────────────────
 

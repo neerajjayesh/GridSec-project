@@ -25,6 +25,8 @@ from protocols.modbus import (
     FC_READ_HOLDING_REGS,
     FC_WRITE_SINGLE_REG,
     EX_ILLEGAL_DATA_ADDRESS,
+    EX_ILLEGAL_DATA_VALUE,
+    EX_ILLEGAL_FUNCTION,
     build_read_registers_response,
     build_exception_response,
     build_read_input_registers_request,
@@ -70,6 +72,10 @@ class ModbusServer:
 
         self._lock   = threading.Lock()
         self._running = False
+        self.ready = threading.Event()
+        self.last_error = ""
+        self._clients = set()
+        self._client_lock = threading.Lock()
         self._server_sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread]   = None
 
@@ -104,12 +110,22 @@ class ModbusServer:
         if self._running:
             return
         self._running = True
+        self.ready.clear()
+        self.last_error = ""
         self._thread  = threading.Thread(target=self._run, daemon=True,
                                           name="Modbus-Server")
         self._thread.start()
 
     def stop(self) -> None:
         self._running = False
+        with self._client_lock:
+            clients = list(self._clients)
+        for client in clients:
+            try:
+                client.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            client.close()
         if self._server_sock:
             try:
                 self._server_sock.close()
@@ -125,13 +141,18 @@ class ModbusServer:
             self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server_sock.bind((self._host, self._port))
+            self._port = self._server_sock.getsockname()[1]
             self._server_sock.listen(8)
             self._server_sock.settimeout(1.0)
             logger.info(f"Modbus TCP server listening on {self._host}:{self._port}")
 
         except OSError as e:
-            logger.warning(f"Modbus server bind error on port {self._port}: {e}. "
-                           "Try: sudo setcap cap_net_bind_service+eip $(readlink -f $(which python3))")
+            self._server_sock.close()
+            if not isinstance(e, PermissionError):
+                self.last_error = str(e)
+                self._running = False
+                self.ready.set()
+                return
             # Try a high port fallback
             try:
                 self._port       = self._port + 10000   # e.g., 10502
@@ -143,11 +164,20 @@ class ModbusServer:
                 logger.info(f"Modbus server fallback: listening on port {self._port}")
             except Exception as e2:
                 logger.error(f"Modbus server could not start: {e2}")
+                self.last_error = str(e2)
+                self._running = False
+                self._server_sock.close()
+                self.ready.set()
                 return
-
+        self.ready.set()
         while self._running:
             try:
                 client_sock, addr = self._server_sock.accept()
+                with self._client_lock:
+                    if len(self._clients) >= 16:
+                        client_sock.close()
+                        continue
+                    self._clients.add(client_sock)
                 self.connections_served += 1
                 ct = threading.Thread(
                     target=self._handle_client,
@@ -165,37 +195,46 @@ class ModbusServer:
     def _handle_client(self, sock: socket.socket, addr) -> None:
         """Handle one Modbus TCP client connection."""
         logger.debug(f"Modbus: client connected from {addr}")
-        sock.settimeout(30.0)
+        sock.settimeout(0.2)
+        buffer = b""
+        idle_since = time.monotonic()
         try:
             while self._running:
                 try:
                     data = sock.recv(1024)
                 except socket.timeout:
+                    if time.monotonic() - idle_since > 30:
+                        break
                     continue
                 if not data:
                     break
 
-                frame = decode_frame(data)
-                if frame is None:
-                    break
-
-                self.requests_handled += 1
-                response = self._process_request(frame, data)
-                if response:
-                    sock.sendall(response)
-
-                if self._callback:
-                    self._callback({
-                        "proto":    "Modbus",
-                        "fc":       frame.fc,
-                        "is_req":   frame.is_request,
-                        "reg_start": frame.register_start,
-                        "reg_count": frame.register_count,
-                    })
+                idle_since = time.monotonic()
+                buffer += data
+                while len(buffer) >= 6:
+                    pid, length = struct.unpack_from(">HH", buffer, 2)
+                    if pid or not 2 <= length <= 254:
+                        return
+                    if len(buffer) < 6 + length:
+                        break
+                    raw, buffer = buffer[:6 + length], buffer[6 + length:]
+                    frame = decode_frame(raw, is_request=True)
+                    if frame is None:
+                        return
+                    self.requests_handled += 1
+                    response = self._process_request(frame, raw)
+                    if response:
+                        sock.sendall(response)
+                    if self._callback:
+                        self._callback({"proto": "Modbus", "fc": frame.fc,
+                                        "is_req": True, "reg_start": frame.register_start,
+                                        "reg_count": frame.register_count})
 
         except Exception as exc:
             logger.debug(f"Modbus client handler error: {exc}")
         finally:
+            with self._client_lock:
+                self._clients.discard(sock)
             try:
                 sock.close()
             except Exception:
@@ -205,6 +244,10 @@ class ModbusServer:
         """Process a decoded Modbus request and return a response."""
         tid = frame.transaction_id
         uid = frame.unit_id
+        if frame.is_exception:
+            return None
+        if frame.fc in (FC_READ_INPUT_REGS, FC_READ_HOLDING_REGS) and not 1 <= frame.register_count <= 125:
+            return build_exception_response(frame.fc, EX_ILLEGAL_DATA_VALUE, tid, uid)
 
         if frame.fc == FC_READ_INPUT_REGS and frame.is_request:
             start = frame.register_start
@@ -232,10 +275,12 @@ class ModbusServer:
             with self._lock:
                 if reg < self.MAX_HOLDING_REGS:
                     self._holding_regs[reg] = val
+                else:
+                    return build_exception_response(frame.fc, EX_ILLEGAL_DATA_ADDRESS, tid, uid)
             from protocols.modbus import build_write_register_response
             return build_write_register_response(reg, val, tid, uid)
 
-        return None
+        return build_exception_response(frame.fc, EX_ILLEGAL_FUNCTION, tid, uid)
 
 
 class ModbusMaster:
@@ -261,6 +306,7 @@ class ModbusMaster:
         self._running   = False
         self._thread:   Optional[threading.Thread] = None
         self._tid       = 0
+        self._stop_event = threading.Event()
 
         self.polls_sent = 0
 
@@ -270,17 +316,18 @@ class ModbusMaster:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread  = threading.Thread(target=self._run, daemon=True,
                                           name="Modbus-Master")
         self._thread.start()
 
     def stop(self) -> None:
         self._running = False
+        self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
 
     def _run(self) -> None:
-        time.sleep(1.5)   # Wait for server to start
         logger.info(f"Modbus master polling {self._server_ip}:{self._server_port}")
 
         while self._running:
@@ -288,10 +335,11 @@ class ModbusMaster:
                 self._poll()
             except Exception as exc:
                 logger.debug(f"Modbus master poll error: {exc}")
-            time.sleep(self._interval)
+            self._stop_event.wait(self._interval)
 
     def _poll(self) -> None:
         """Connect, send Read Input Registers request, receive response, disconnect."""
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2.0)
@@ -310,6 +358,9 @@ class ModbusMaster:
             sock.close()
         except Exception:
             pass  # server not ready yet
+        finally:
+            if sock:
+                sock.close()
 
 
 class ModbusSimulator:
@@ -348,8 +399,9 @@ class ModbusSimulator:
 
     def start(self) -> None:
         self.server.start()
-        # Give server a moment to bind, then master can start polling
-        time.sleep(0.3)
+        if not self.server.ready.wait(2) or self.server.last_error:
+            self.server.stop()
+            raise OSError(self.server.last_error or "Modbus server startup timed out")
         self.master.start(fallback_port=self.server._port)
         logger.info(f"Modbus simulator started (server={self._host}:{self.server._port})")
 

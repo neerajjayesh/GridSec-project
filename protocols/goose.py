@@ -304,6 +304,8 @@ def decode_frame(raw: bytes) -> Optional[DecodedGoose]:
         offset = 14
         appid  = struct.unpack_from(">H", raw, offset)[0]
         length = struct.unpack_from(">H", raw, offset + 2)[0]
+        if length < 8 or 14 + length > len(raw):
+            return None
         offset += 8   # skip APPID + Length + 2×Reserved
 
         # PDU: expect TAG_GOOSEPDU (0x61)
@@ -314,6 +316,8 @@ def decode_frame(raw: bytes) -> Optional[DecodedGoose]:
         pdu_len, hdr_bytes = _decode_length(raw, offset)
         offset += hdr_bytes
         pdu_end  = offset + pdu_len
+        if pdu_end != 14 + length:
+            return None
 
         # Parse PDU fields
         fields = {}
@@ -322,6 +326,8 @@ def decode_frame(raw: bytes) -> Optional[DecodedGoose]:
                 break
             tag = raw[offset]; offset += 1
             flen, hb = _decode_length(raw, offset); offset += hb
+            if offset + flen > pdu_end:
+                return None
             val = raw[offset:offset + flen]; offset += flen
 
             if tag == TAG_GOCBREF:
@@ -352,6 +358,8 @@ def decode_frame(raw: bytes) -> Optional[DecodedGoose]:
                 fields["allData"] = val
 
         values = _decode_all_data(fields.get("allData", b""))
+        if len(values) != fields.get("numEntries", -1):
+            return None
 
         return DecodedGoose(
             src_mac     = src_mac,

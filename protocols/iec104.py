@@ -80,6 +80,8 @@ class IEC104Frame:
         if raw[0] != IEC104_START:
             return None
         length = raw[1]
+        if not 4 <= length <= 253 or len(raw) != length + 2:
+            return None
         ctrl   = raw[2:6]
         asdu   = raw[6:2 + length]
 

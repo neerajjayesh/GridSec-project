@@ -1,0 +1,169 @@
+\chapter{Configuration reference}\label{chapter-5}
+\Needspace{10\baselineskip}
+\section*{Launch options and environment}
+\pdfbookmark[1]{Launch options and environment}{chapter-5-s1}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Setting & \color{white}\bfseries Default & \color{white}\bfseries Effect \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Setting & \color{white}\bfseries Default & \color{white}\bfseries Effect \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{python}\ \seqsplit{main.py}} & Empty canvas & Starts the desktop application \\
+\code{\seqsplit{python}\ \seqsplit{main.py}\ \seqsplit{--demo}} & Opt-in & Loads bundled diagram after startup; does not start traffic \\
+\rowcolor{pale}
+\code{\seqsplit{GRIDSEC\_LOG\_LEVEL}} & \code{\seqsplit{INFO}} & Python logging level, uppercased; unknown names fall back to INFO \\
+\code{\seqsplit{DISPLAY}}, \code{\seqsplit{WAYLAND\_DISPLAY}} & Environment-dependent & Linux/WSL display discovery \\
+\rowcolor{pale}
+\code{\seqsplit{QT\_QPA\_PLATFORM}} & Qt/platform-dependent & Can select offscreen Qt for automated checks \\
+\end{longtable}
+\endgroup
+
+There is no project CLI parser exposing endpoint, attack, API, capture, config-file, or headless-run flags. \code{\seqsplit{--demo}} is detected directly in \code{\seqsplit{sys.argv}}.
+
+\par\noindent\begin{minipage}{\linewidth}
+PowerShell logging example:
+\begin{lstlisting}[title={POWERSHELL}]
+$env:GRIDSEC_LOG_LEVEL = 'DEBUG'
+.\.venv\Scripts\python.exe main.py --demo
+\end{lstlisting}
+\end{minipage}\par
+\par\noindent\begin{minipage}{\linewidth}
+Linux example:
+\begin{lstlisting}[title={BASH}]
+GRIDSEC_LOG_LEVEL=DEBUG .venv/bin/python main.py --demo
+\end{lstlisting}
+\end{minipage}\par
+\Needspace{10\baselineskip}
+\section*{Dependency declaration}
+\pdfbookmark[1]{Dependency declaration}{chapter-5-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Package & \color{white}\bfseries Declared minimum & \color{white}\bfseries Role \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Package & \color{white}\bfseries Declared minimum & \color{white}\bfseries Role \\
+\endhead
+\endfoot
+\rowcolor{pale}
+PyQt6 & 6.4.0 & Desktop UI and signals \\
+matplotlib & 3.7.0 & Embedded waveform plots \\
+\rowcolor{pale}
+numpy & 1.24.0 & Plot data arrays \\
+scapy & 2.5.0 & Declared packet-tooling dependency; core PCAP writer uses standard-library code \\
+\rowcolor{pale}
+pyqtgraph & 0.13.0 & Declared dependency; current waveform implementation uses matplotlib \\
+cryptography & 41.0.0 & Declared dependency; its presence does not enable TLS/authentication on protocol streams \\
+\end{longtable}
+\endgroup
+
+No exact lockfile or package metadata is supplied. Record installed versions for repeatable experiments. Startup explicitly checks only PyQt6, matplotlib, and numpy.
+
+\Needspace{10\baselineskip}
+\section*{Desktop runtime settings}
+\pdfbookmark[1]{Desktop runtime settings}{chapter-5-s3}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.24000\linewidth-4.800pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.36000\linewidth-7.200pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.40000\linewidth-8.000pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Setting & \color{white}\bfseries Actual runtime value/source & \color{white}\bfseries Notes \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Setting & \color{white}\bfseries Actual runtime value/source & \color{white}\bfseries Notes \\
+\endhead
+\endfoot
+\rowcolor{pale}
+PMU destination host & \code{\seqsplit{127.0.0.1}} & Editable PMU IP is not used as the socket destination \\
+Proxy bind host & \code{\seqsplit{127.0.0.1}} & Fixed by main window \\
+\rowcolor{pale}
+Proxy listen port & First PMU node's \code{\seqsplit{port}}; default 4712 & Stop and restart after edits \\
+Proxy destination & First Local PDC node's \code{\seqsplit{ip}} and \code{\seqsplit{port}}; defaults \code{\seqsplit{127.0.0.1:4713}} & Represents an independently running receiver \\
+\rowcolor{pale}
+Main transport & UDP & Saved node \code{\seqsplit{proto=TCP}} does not switch the desktop runtime \\
+Reporting rate & 30 frames/s & PMU node \code{\seqsplit{reporting\_rate}} is not passed through \\
+\rowcolor{pale}
+PMU ID & 1 & Node \code{\seqsplit{idcode}} is not passed through \\
+Measurements & Three phasors, one analog, one digital word at generation & Parser digital-word mismatch is documented separately \\
+\rowcolor{pale}
+Nominal frequency/magnitude & 50 Hz / 120 V & Constructor arguments fixed by main window \\
+GOOSE & App ID \code{\seqsplit{0x0001}}, IED name \code{\seqsplit{GridSecSim}}, 1 Hz, autodetected interface & Started independently of diagram node counts \\
+\rowcolor{pale}
+DNP3 & Destination \code{\seqsplit{127.0.0.1:20000}}, requested bind port 20000, 1 Hz & Bind host is \code{\seqsplit{0.0.0.0}}; may fall back to an ephemeral port \\
+Modbus & Server \code{\seqsplit{127.0.0.1:502}}, 1 Hz master polling & On bind failure attempts port 10502 \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Saved properties versus live behavior}
+\pdfbookmark[1]{Saved properties versus live behavior}{chapter-5-s4}
+Node labels, positions, levels, protocol labels, breaker state, switch port count, PDC buffer settings, regional uplink state, and Threat Agent metadata are stored in the diagram. Only the runtime fields identified above determine the desktop sockets.
+
+Editing a property while running does not rebuild active components. \code{\seqsplit{\_on\_config\_applied()}} logs the change; it does not reconfigure the proxy. Stop, edit, validate, and restart.
+
+Threat Agent attack type, parameters, and schedule may be recorded when toggling attacks through the panel. Loading them restores metadata, not engine execution. The one active engine remains global to the stream; selected-link scope is not enforced.
+
+\Needspace{10\baselineskip}
+\section*{Core constructors}
+\pdfbookmark[1]{Core constructors}{chapter-5-s5}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Interface & \color{white}\bfseries Useful defaults and controls \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Interface & \color{white}\bfseries Useful defaults and controls \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{PMUSimulator}} & \code{\seqsplit{dst\_host=\textquotesingle{}127.0.0.1\textquotesingle{}}}, \code{\seqsplit{dst\_port=4712}}, \code{\seqsplit{idcode=1}}, \code{\seqsplit{fps=30}} clamped to 1-120, \code{\seqsplit{nom\_freq=50.0}}, \code{\seqsplit{nom\_voltage=120.0}} \\
+\code{\seqsplit{PDCProxy}} & \code{\seqsplit{listen\_host=\textquotesingle{}0.0.0.0\textquotesingle{}}}, \code{\seqsplit{listen\_port=4712}}, \code{\seqsplit{target\_host=\textquotesingle{}127.0.0.1\textquotesingle{}}}, \code{\seqsplit{target\_port=4713}}, \code{\seqsplit{proto=\textquotesingle{}UDP\textquotesingle{}}}; core also has TCP mode \\
+\rowcolor{pale}
+\code{\seqsplit{C37118Codec}} & \code{\seqsplit{idcode=1}}, three phasors, one analog, zero digital words unless explicitly set \\
+\code{\seqsplit{GridSecRESTServer}} & \code{\seqsplit{host=\textquotesingle{}127.0.0.1\textquotesingle{}}}, \code{\seqsplit{port=8080}}; bearer auth enabled in shared API state \\
+\rowcolor{pale}
+\code{\seqsplit{IntegrationManager.configure\_rest\_api}} & Defaults to \code{\seqsplit{host=\textquotesingle{}0.0.0.0\textquotesingle{}}}, \code{\seqsplit{port=8080}}; explicitly pass loopback for local use \\
+\code{\seqsplit{configure\_syslog}} & \code{\seqsplit{host=\textquotesingle{}127.0.0.1\textquotesingle{}}}, \code{\seqsplit{port=514}}, \code{\seqsplit{protocol=\textquotesingle{}UDP\textquotesingle{}}} \\
+\rowcolor{pale}
+\code{\seqsplit{configure\_pcap}} & \code{\seqsplit{/tmp/gridsec\_capture.pcap}}, regular file by default; choose a native path on Windows \\
+\end{longtable}
+\endgroup
+
+Constructors expose more flexibility than the desktop. These Python interfaces are not a promise of complete interoperability or thread-safe multi-instance use.
+
+\Needspace{10\baselineskip}
+\section*{Persistence and reset}
+\pdfbookmark[1]{Persistence and reset}{chapter-5-s6}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries State & \color{white}\bfseries Saved/recovered? \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries State & \color{white}\bfseries Saved/recovered? \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Topology nodes, links, attachment IDs & Explicit JSON save/load \\
+Attack metadata on agents & May be saved; not automatically armed on load \\
+\rowcolor{pale}
+Engine counters, ramp/replay state & Memory only; retained across stop/start until reset \\
+Incident history & Memory only, last 10,000 records \\
+\rowcolor{pale}
+Recent packet summaries & Memory only, last 1,000 records \\
+API token & Generated in module state per process; explicit setter available \\
+\rowcolor{pale}
+Integration host/path settings & Memory only; no automatic settings file \\
+Logs & Console by default; file persistence requires explicit redirection \\
+\end{longtable}
+\endgroup
+
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/requirements.txt}{requirements} (\code{\seqsplit{requirements.txt}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/main.py}{entry} (\code{\seqsplit{main.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/main_window.py}{main window} (\code{\seqsplit{gui/main\_window.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pmu_simulator.py}{PMU} (\code{\seqsplit{core/pmu\_simulator.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{manager} (\code{\seqsplit{core/integration\_manager.py}}).\par}
+

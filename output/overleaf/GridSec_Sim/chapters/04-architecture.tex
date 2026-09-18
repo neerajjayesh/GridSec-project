@@ -1,0 +1,91 @@
+\chapter{Architecture}\label{chapter-4}
+\Needspace{10\baselineskip}
+\section*{System context}
+\pdfbookmark[1]{System context}{chapter-4-s1}
+GridSec Sim is a local desktop application. It owns a synthetic PMU and a forwarding proxy; an external PDC, capture analyzer, or event collector is a separate system. No database, message broker, cloud backend, or web application is required.
+
+\begin{center}\includegraphics[width=\linewidth]{figures/system-context.pdf}\captionof{figure}{System context and information flow.}\end{center}
+The dotted path identifies core integration capabilities whose desktop wiring is incomplete. Auxiliary protocols are updated from original measurements, not the modified C37.118 values.
+
+\Needspace{10\baselineskip}
+\section*{Components and ownership}
+\pdfbookmark[1]{Components and ownership}{chapter-4-s2}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Component & \color{white}\bfseries Responsibility and owned state \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Component & \color{white}\bfseries Responsibility and owned state \\
+\endhead
+\endfoot
+\rowcolor{pale}
+\code{\seqsplit{main.py}} & Dependency check, logging, Qt application, crash handler, demo scheduling \\
+\code{\seqsplit{MainWindow}} & Runtime component handles, shared engine/filter, UI composition, Qt relay, integration manager \\
+\rowcolor{pale}
+\code{\seqsplit{TopologyCanvas}} & Node/link collections, IDs, attachments, drawing and persistence \\
+\code{\seqsplit{PMUSimulator}} & UDP generation thread, its own codec, measurement controls, send counters \\
+\rowcolor{pale}
+\code{\seqsplit{PDCProxy}} & Receive/forward sockets, processing counters, callbacks, engine/filter references \\
+\code{\seqsplit{packet\_parser}} & Module-global active codec used for parse/rebuild \\
+\rowcolor{pale}
+\code{\seqsplit{AttackEngine}} & Ten module instances, selected type, counters, schedule \\
+\code{\seqsplit{TrafficFilter}} & Rules controlling which data frames enter the attack engine \\
+\rowcolor{pale}
+\code{\seqsplit{WaveformViewer}} & Rolling measurement buffers and plot timer \\
+\code{\seqsplit{IntegrationManager}} & In-memory incidents/packet summaries, session ID, export and integration configuration \\
+\rowcolor{pale}
+\code{\seqsplit{rest\_api}} & HTTP handler and module-global callback/auth/SSE state \\
+\end{longtable}
+\endgroup
+
+\Needspace{10\baselineskip}
+\section*{Startup and shutdown}
+\pdfbookmark[1]{Startup and shutdown}{chapter-4-s3}
+\begin{enumerate}
+\item \code{\seqsplit{main.py}} configures logging and checks PyQt6, matplotlib, and numpy imports.
+\item A \code{\seqsplit{QApplication}} and \code{\seqsplit{MainWindow}} are constructed. Background simulation has not started yet.
+\item \code{\seqsplit{--demo}} schedules loading of the bundled topology.
+\item Run validates the diagram and selects its first PMU and Local PDC.
+\item The UDP proxy starts; the GUI waits 150 ms before starting the PMU. This is a fixed delay, not a readiness handshake.
+\item The PMU sends a configuration frame, then data at the configured constructor rate, fixed to 30 frames/s by the GUI.
+\item The GUI starts auxiliary GOOSE, DNP3, and Modbus components and plotting.
+\item Stop requests component shutdown and stops plot updates. Closing a running main window invokes that simulation stop path.
+\end{enumerate}
+
+Threads are daemon-based and components generally signal stop/close sockets rather than synchronously join every worker. The main window does not explicitly stop the integration manager on close. Embedders should manage integration lifecycle themselves and avoid immediate port reuse until workers exit.
+
+\Needspace{10\baselineskip}
+\section*{Proxy pipeline}
+\pdfbookmark[1]{Proxy pipeline}{chapter-4-s4}
+\begin{center}\includegraphics[width=\linewidth]{figures/proxy-pipeline.pdf}\captionof{figure}{Proxy processing and disposition paths.}\end{center}
+\code{\seqsplit{PacketRecord}} is emitted during processing, before UDP forwarding is attempted. Thus a successful record or plot update is not a delivery acknowledgment. Send failures increment proxy errors. Rebuild failures can return the original raw bytes while the record remains classified as attacked.
+
+Configuration and command frames bypass attack/filter processing once decoded. Unknown and invalid types are discarded. Scheduling counts matching data frames entering the engine, not all received packets.
+
+\Needspace{10\baselineskip}
+\section*{Threads and synchronization}
+\pdfbookmark[1]{Threads and synchronization}{chapter-4-s5}
+PMU and proxy callbacks emit signals through \code{\seqsplit{WorkerRelay}}. Qt delivers connected UI work on the main thread. The GUI batches log updates every 200 ms, refreshes status every second, and updates attack statistics every 500 ms. The viewer redraws only its active tab at 10 Hz.
+
+PMU measurement controls and integration record deques use locks. The engine is shared between UI and proxy without a comprehensive locking protocol. API callbacks execute on the server thread. Future remote control must marshal UI changes to Qt rather than manipulating widgets there.
+
+The REST server runs \code{\seqsplit{HTTPServer.serve\_forever()}} on a background thread. Request handling itself is single-threaded. An SSE connection occupies that handler until it ends and can prevent other requests from being served. Multiple server instances also share module-global state.
+
+\Needspace{10\baselineskip}
+\section*{State and persistence}
+\pdfbookmark[1]{State and persistence}{chapter-4-s6}
+\begin{itemize}
+\item Topology JSON stores diagram state; loading it does not recreate a complete running session.
+\item Engine state survives stop/start within one main window unless reset.
+\item Integration incidents survive simulation stops and rotate when their bounded deque fills.
+\item There is no automatic session recovery, database persistence, or persistent integration-settings file.
+\item Parser codec and REST state are global within the Python process, limiting safe multi-stream/multi-server composition.
+\end{itemize}
+
+\par\noindent\begin{minipage}{\linewidth}\setlength{\parskip}{5pt}
+The parser defaults to zero digital words while the GUI PMU produces one. Passing \code{\seqsplit{codec=}} to \code{\seqsplit{PDCProxy}} does not update the parser's global codec. See \hyperref[chapter-16]{Known limitations} and the explicit \code{\seqsplit{set\_codec()}} call in the offline example.
+{\footnotesize\color{muted}\raggedright Source: \href{https://github.com/neerajjayesh/GridSec-project/blob/main/main.py}{entry} (\code{\seqsplit{main.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/gui/main_window.py}{main window} (\code{\seqsplit{gui/main\_window.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/pdc_proxy.py}{proxy} (\code{\seqsplit{core/pdc\_proxy.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/packet_parser.py}{parser} (\code{\seqsplit{core/packet\_parser.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/integration_manager.py}{manager} (\code{\seqsplit{core/integration\_manager.py}}), \href{https://github.com/neerajjayesh/GridSec-project/blob/main/core/rest_api.py}{REST} (\code{\seqsplit{core/rest\_api.py}}).\par}
+\end{minipage}\par
+

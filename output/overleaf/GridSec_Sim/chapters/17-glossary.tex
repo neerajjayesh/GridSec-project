@@ -1,0 +1,67 @@
+\chapter{Glossary}\label{chapter-17}
+\begingroup
+\fontsize{8.7}{11.8}\selectfont
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.23}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr 0.34000\linewidth-3.400pt\relax}>{\raggedright\arraybackslash}p{\dimexpr 0.66000\linewidth-6.600pt\relax}@{}}
+\rowcolor{navy} \color{white}\bfseries Term & \color{white}\bfseries Meaning in this project \\
+\endfirsthead
+\rowcolor{navy} \color{white}\bfseries Term & \color{white}\bfseries Meaning in this project \\
+\endhead
+\endfoot
+\rowcolor{pale}
+Attack engine & Applies one selected transformation to eligible decoded data frames \\
+BCU & Bay Control Unit; a diagram node representing bay switching/control \\
+\rowcolor{pale}
+C37.118 & Synchrophasor communication format targeted by the primary codec/runtime \\
+CEF & Common Event Format used by the Syslog exporter \\
+\rowcolor{pale}
+CFG-2 & Configuration frame describing measurement channels and reporting setup \\
+CRC & Checksum used to detect frame corruption; recalculation does not authenticate a sender \\
+\rowcolor{pale}
+CT/VT & Current/voltage transformer, represented as a process-level sensor node \\
+DNP3 & Protocol family represented by framing helpers and a limited UDP simulator \\
+\rowcolor{pale}
+Frame & Encoded protocol message, or its decoded dictionary when stated explicitly \\
+GOOSE & IEC 61850-associated event-message format carried directly over Ethernet \\
+\rowcolor{pale}
+HMI & Human-machine interface; station diagram asset in GridSec Sim \\
+IDCODE & Identifier carried in C37.118 headers \\
+\rowcolor{pale}
+IED & Intelligent Electronic Device; protection relay diagram type \\
+Incident & Manager record for any processed callback, including clean traffic \\
+\rowcolor{pale}
+Integration manager & Owns retained records, exporters, and optional external interfaces \\
+Local PDC & Diagram destination used by the desktop proxy; does not start a receiver \\
+\rowcolor{pale}
+MitM & Man in the middle; here, an explicitly configured local forwarding proxy \\
+Modbus TCP & Register-oriented protocol served/polled by the auxiliary simulator \\
+\rowcolor{pale}
+PacketRecord & Internal proxy record containing original/modified dicts and classification \\
+PCAP & Packet capture file format; core writer creates synthesized network frames \\
+\rowcolor{pale}
+PDC & Phasor Data Concentrator, an intended downstream measurement receiver \\
+Phasor & Magnitude and phase angle representation of a periodic quantity \\
+\rowcolor{pale}
+PMU & Phasor Measurement Unit; here, a synthetic measurement generator \\
+ROCOF / DFREQ & Rate of change of frequency, represented in Hz/s \\
+\rowcolor{pale}
+RTU & Remote Terminal Unit; gateway diagram type \\
+SCADA & Supervisory Control and Data Acquisition \\
+\rowcolor{pale}
+SIEM / SOAR & Security event analysis / response automation systems that may consume exports \\
+SSE & Server-Sent Events, the API's optional live HTTP event stream \\
+\rowcolor{pale}
+State PDC & Higher-level diagram node with a regional uplink indicator \\
+STIX & Structured threat-information representation targeted by the experimental exporter \\
+\rowcolor{pale}
+Threat Agent & Canvas node recording interception metadata; not an independent runtime engine \\
+Topology & Saved diagram of nodes, links, and metadata \\
+\rowcolor{pale}
+Traffic filter & Rules selecting frames for attack processing, not a network firewall \\
+WSL & Windows Subsystem for Linux; a possible Linux runtime/display environment \\
+\end{longtable}
+\endgroup
+
+For support boundaries, consult \hyperref[chapter-7]{Protocols} and \hyperref[chapter-16]{Known limitations}.
+
